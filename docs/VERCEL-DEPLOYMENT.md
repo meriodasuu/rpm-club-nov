@@ -2,6 +2,8 @@
 
 Target: `rpm-club-demo` in `meriodasuus-projects`. Publish a Preview deployment first.
 
+Latest release (2026-09-23): https://rpm-club-demo-fhwpqpnsl-meriodasuus-projects.vercel.app/onboarding — `dpl_4hRcaFnGGtpg7oNq9ynDKpyUVmkj`, READY, implementation commit `4629edf`. Member history contains rentals/requests only; cards and rental quotes use discounts; `/contacts` opens inside the app and works without sign-in. Published program v2 (`discount`) retains configured tiers, rates and thresholds; the existing cloud rental was verified unchanged. The direct database connection timed out before reading or writing; the reviewed, locally rollback-tested `supabase/operations/activate-discounts.sql` published the edition through the SQL connector with an audit and outbox event. Bot webhook, default/owner menus and Vault worker origin now point to this deployment. Verification: 172 tests across 28 files, TypeScript, ESLint and Vercel build passed; cloud contacts verified in the browser. See [release details](DISCOUNT-CONTACTS-2026-09-23.md).
+
 Latest UI fix (2026-09-22): https://rpm-club-demo-ivg2nf0t2-meriodasuus-projects.vercel.app/onboarding — `dpl_4S71HCLzP9TwnUHpZLxTSXzTxLWX`, READY, implementation commit `772e95f`. Home now focuses on rental requests and services; Club contains the card carousel, progress and membership benefits. TypeScript, ESLint, browser checks and Vercel build passed. Telegram webhook/default and owner menus were verified with this origin; Vault worker origin updated. No migrations or business-rule activation.
 
 ## Prepared on 2026-09-13
