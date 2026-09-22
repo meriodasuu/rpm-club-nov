@@ -482,14 +482,14 @@ export function TriggerRulesPage() {
     <>
       <PageHeading
         title="Автоуведомления"
-        subtitle="Бот отправляет сообщения по событиям. Результаты доступны в разделе «Доставка»"
+        subtitle="Бот отправляет сообщения по событиям. Результаты доступны в разделе «Доставка сообщений»"
       />
       <p className="small-note">
-        До аренды — за 2 часа до согласованного времени выдачи (Москва). После
-        аренды — сразу после статуса «Завершена», независимо от оплаты.
-        Предложения и маршруты — после публикации. Проверка событий — каждую
-        минуту; сообщения отправляются через очередь. Старые публикации при
-        включении рассылки не отправляются.
+        До аренды — за указанное в правиле число часов до времени выдачи
+        (Москва). После аренды — сразу после статуса «Завершена», независимо от
+        оплаты. Предложения и маршруты — после публикации. Проверка событий —
+        каждую минуту; сообщения отправляются через очередь. Старые публикации
+        при включении рассылки не отправляются.
       </p>
       {r.error ? (
         <Failure error={r.error} />
@@ -521,7 +521,10 @@ function TriggerForm({
   return (
     <form
       className="panel trigger-form"
-      onChange={guard.markDirty}
+      onChange={() => {
+        guard.markDirty();
+        setSuccess("");
+      }}
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -552,7 +555,12 @@ function TriggerForm({
           <Bell size={18} /> {triggerLabels[rule.kind]}
         </h2>
         <label className="checkbox-field">
-          <input name="enabled" type="checkbox" defaultChecked={rule.enabled} />
+          <input
+            name="enabled"
+            type="checkbox"
+            defaultChecked={rule.enabled}
+            disabled={busy}
+          />
           Включено
         </label>
       </div>
@@ -560,6 +568,7 @@ function TriggerForm({
         <Field label="Текст сообщения">
           <textarea
             name="message"
+            disabled={busy}
             rows={3}
             maxLength={1800}
             minLength={3}
@@ -571,6 +580,7 @@ function TriggerForm({
           <Field label="За сколько часов до выдачи">
             <input
               name="hours"
+              disabled={busy}
               type="number"
               min={1}
               max={168}
@@ -588,12 +598,18 @@ function TriggerForm({
               </p>
             )}
             <Field label="Город">
-              <input name="city" defaultValue={rule.city} maxLength={120} />
+              <input
+                name="city"
+                defaultValue={rule.city}
+                maxLength={120}
+                disabled={busy}
+              />
             </Field>
             <div className="form-grid">
               <Field label="Широта">
                 <input
                   name="lat"
+                  disabled={busy}
                   type="number"
                   step="any"
                   min={-90}
@@ -604,6 +620,7 @@ function TriggerForm({
               <Field label="Долгота">
                 <input
                   name="lon"
+                  disabled={busy}
                   type="number"
                   step="any"
                   min={-180}

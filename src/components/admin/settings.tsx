@@ -409,7 +409,10 @@ function LegalEditor() {
           связаны с принятой ими версией.
         </p>
         <form
-          onChange={guard.markDirty}
+          onChange={() => {
+            guard.markDirty();
+            setSuccess("");
+          }}
           onSubmit={async (e) => {
             e.preventDefault();
             const form = e.currentTarget,
@@ -431,7 +434,7 @@ function LegalEditor() {
         >
           <div className="form-grid">
             <Field label="Документ">
-              <select name="type">
+              <select name="type" disabled={busy}>
                 <option value="rules">Правила программы</option>
                 <option value="privacy">Политика конфиденциальности</option>
                 <option value="personal-data">
@@ -440,15 +443,22 @@ function LegalEditor() {
               </select>
             </Field>
             <Field label="Версия">
-              <input name="version" required maxLength={30} placeholder="1.0" />
+              <input
+                name="version"
+                required
+                maxLength={30}
+                placeholder="1.0"
+                disabled={busy}
+              />
             </Field>
           </div>
           <Field label="Заголовок">
-            <input name="title" required maxLength={200} />
+            <input name="title" required maxLength={200} disabled={busy} />
           </Field>
           <Field label="Текст документа">
             <textarea
               name="text"
+              disabled={busy}
               required
               minLength={20}
               maxLength={50000}
