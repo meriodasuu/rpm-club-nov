@@ -528,6 +528,22 @@ small {
   color: #aaa;
   margin: 0 0 26px;
 }
+.home-greeting { color: #aaa; font-size: 13px; margin: 0 0 9px; }
+.home-rental { padding: 24px; border: 1px solid #39302f; border-radius: 16px; background: radial-gradient(ellipse at top right, #45231f 0%, #1c1716 45%, #151515 100%); }
+.home-rental > svg { color: #ef766b; margin-bottom: 20px; }
+.home-rental h2 { max-width: 280px; font-size: clamp(24px, 6vw, 30px); line-height: 1.15; letter-spacing: -.6px; margin: 0 0 14px; }
+.home-rental p { color: #bbb; font-size: 14px; line-height: 1.6; margin: 0 0 22px; }
+.home-rental .home-actions { margin-bottom: 0; }
+.home-membership { display: flex; align-items: center; gap: 14px; padding: 20px 0; margin-top: 8px; border-bottom: 1px solid #303030; }
+.home-membership > div:first-child { flex: 1; min-width: 0; }
+.home-membership strong { display: block; font-size: 21px; overflow-wrap: anywhere; }
+.home-membership span, .home-membership small { display: block; color: #aaa; font-size: 12px; line-height: 1.6; }
+.home-membership-rate { text-align: right; flex-shrink: 0; }
+.home-membership > svg { flex-shrink: 0; color: #aaa; }
+.home-offer h2 { font-size: 18px; margin: 0 0 14px; }
+.club-membership-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 24px 0; }
+.club-membership-actions .button { min-width: 0; padding: 12px 8px; font-size: 12px; text-align: center; }
+#my-requests, #invite-friend { scroll-margin-top: 24px; }
 .membership-card {
   position: relative;
   border: 1px solid #424242;

@@ -4,7 +4,7 @@ import {
   type ReferralProgram,
   type ReferralAward,
 } from "@/lib/referrals/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -99,6 +99,18 @@ export function MiniApp({
     refresh,
   } = useResource<Account>("me", 30000);
   const pathname = usePathname();
+  const scrolledTo = useRef("");
+  useEffect(() => {
+    if (!account) return;
+    const destination = pathname + location.hash;
+    if (scrolledTo.current === destination) return;
+    scrolledTo.current = destination;
+    if (["#my-requests", "#invite-friend"].includes(location.hash)) {
+      document
+        .getElementById(location.hash.slice(1))
+        ?.scrollIntoView({ block: "start" });
+    }
+  }, [account, pathname]);
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     tg?.ready();
@@ -185,49 +197,61 @@ export function MiniApp({
 }
 function HomeScreen({ account }: { account: Account }) {
   const { data: offers } = useResource<{ items: Offer[] }>("offers");
+  const currentTier = account.program.tiers.find(
+    (t) => t.code === account.tier,
+  )!;
+  const discount = account.program.rewardMode === "discount";
   return (
     <>
-      <h1 className="home-title">Ваш статус внутри RPM</h1>
-      <CardCarousel account={account} />
-      {account.total_rental_amount === "0" && (
-        <p className="small-note" style={{ marginTop: 18 }}>
-          Аренд пока нет. Завершённые оплаченные поездки приближают следующий
-          уровень.
+      <p className="home-greeting">
+        {account.user.name.split(" ")[0]}, рады видеть вас
+      </p>
+      <h1 className="home-title">Куда отправимся?</h1>
+      <section className="home-rental" aria-label="Ваша следующая поездка">
+        <CarFront size={36} strokeWidth={1.4} aria-hidden="true" />
+        <h2>Автомобиль для ваших планов</h2>
+        <p>
+          Выберите автомобиль и даты. Менеджер подтвердит заявку, оплата — на
+          месте.
         </p>
-      )}
-      <div className="home-actions">
-        <Link className="button button-wide" href="/rent">
-          Выбрать автомобиль
-          <ArrowRight size={22} />
-        </Link>
-      </div>
-      <ClubLinks />
-      {offers?.items[0] && <OfferCard offer={offers.items[0]} />}
-      {account.next_tier && (
-        <div className="next-benefit">
-          <div className="benefit-icon">
-            <Gift size={20} />
-          </div>
-          <div>
-            <span>
-              Следующий уровень ·{" "}
-              {tierName(
-                account.program.tiers.find(
-                  (tier) => tier.code === account.next_tier,
-                )!,
-              )}
-            </span>
-            <p>
-              {
-                account.program.tiers.find((t) => t.code === account.next_tier)
-                  ?.benefits[0]
-              }
-            </p>
-          </div>
-          <ChevronRight size={18} />
+        <div className="home-actions">
+          <Link className="button button-wide" href="/rent">
+            Выбрать автомобиль <ArrowRight size={22} />
+          </Link>
+          <Link className="button button-outline" href="/rent#my-requests">
+            Мои заявки
+          </Link>
         </div>
+      </section>
+      <Link
+        className="home-membership"
+        href="/club"
+        aria-label="Мой статус и привилегии в Club"
+      >
+        <div>
+          <span>Ваш уровень</span>
+          <strong>{tierName(currentTier)}</strong>
+          <small>Карта и привилегии в Club</small>
+        </div>
+        <div className="home-membership-rate">
+          <strong>
+            {(discount
+              ? account.discount_rate_bps
+              : account.cashback_rate_bps) / 100}
+            %
+          </strong>
+          <span>{discount ? "скидка" : "cashback"}</span>
+        </div>
+        <ChevronRight size={20} aria-hidden="true" />
+      </Link>
+      <ClubLinks />
+      {offers?.items[0] && (
+        <section className="home-offer" aria-label="Предложение для вас">
+          <h2>Предложение для вас</h2>
+          <OfferCard offer={offers.items[0]} />
+        </section>
       )}
-      <div className="mini-note">Ваш статус. Ваши возможности. Ваш RPM.</div>
+      <div className="mini-note">Ваша следующая поездка начинается здесь.</div>
     </>
   );
 }
@@ -262,9 +286,16 @@ function ClubScreen({ account }: { account: Account }) {
   return (
     <>
       <h1>RPM Club</h1>
-      <p className="screen-subtitle">Каждая поездка открывает больше</p>
+      <p className="screen-subtitle">Ваша карта, уровни и привилегии</p>
       <CardCarousel account={account} />
-      <ClubLinks />
+      <div className="club-membership-actions">
+        <Link className="button button-outline" href="/conditions">
+          Условия программы
+        </Link>
+        <Link className="button button-outline" href="/profile#invite-friend">
+          Пригласить друга
+        </Link>
+      </div>
       {!!offers?.items.length && (
         <section className="club-offers">
           <h2>Доступно участникам</h2>
@@ -521,7 +552,7 @@ function ProfileScreen({
         />
         <p className="small-note">Покажите карту сотруднику RPM</p>
       </div>
-      <section className="referral-card">
+      <section className="referral-card" id="invite-friend">
         <Gift size={23} />
         <h2>
           Хорошие поездки

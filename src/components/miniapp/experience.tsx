@@ -115,7 +115,9 @@ export function RentalScreen() {
           ))}
         </div>
       )}
-      <h2 className="section-title">Мои заявки</h2>
+      <h2 className="section-title" id="my-requests">
+        Мои заявки
+      </h2>
       <RentalRequests key={requestVersion} />
       {selectedCar && (
         <BookingDialog
