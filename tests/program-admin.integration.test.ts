@@ -170,6 +170,7 @@ suite("program publication through the admin HTTP API", () => {
       ).toBe("Тестовый подуровень");
       const removal = await call("admin/program-versions", cookie, {
         ...original,
+        rewardMode: "discount",
         reason: "Cannot remove a published level",
       });
       expect((await removal.json()).code).toBe("TIER_REMOVAL");
@@ -198,6 +199,7 @@ suite("program publication through the admin HTTP API", () => {
         .slice(0, 10);
       const unchanged = await call("admin/program-versions", cookie, {
         ...program,
+        rewardMode: "discount",
         programStartsAt: resolveProgramStartsAt(date, program.programStartsAt),
         reason: "Publish unchanged start date",
       });
@@ -210,6 +212,7 @@ suite("program publication through the admin HTTP API", () => {
         .slice(0, 10);
       const changed = await call("admin/program-versions", cookie, {
         ...program,
+        rewardMode: "discount",
         programStartsAt: resolveProgramStartsAt(
           changedDate,
           program.programStartsAt,
@@ -232,6 +235,17 @@ suite("program publication through the admin HTTP API", () => {
       });
       expect(unavailable.status).toBe(400);
       expect((await unavailable.json()).code).toBe("INVALID_TIER");
+    }));
+
+  it("rejects publishing cashback through the current admin API", async () =>
+    rollback(async () => {
+      const result = await call("admin/program-versions", await staff(), {
+        ...(await getProgram()),
+        rewardMode: "cashback",
+        reason: "Retired mechanic must stay unavailable",
+      });
+      expect(result.status).toBe(422);
+      expect((await result.json()).code).toBe("VALIDATION_ERROR");
     }));
 
   it("keeps program publication restricted to admins", async () =>

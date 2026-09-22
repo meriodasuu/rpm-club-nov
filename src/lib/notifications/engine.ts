@@ -63,6 +63,13 @@ async function candidates(
 ): Promise<Candidate[]> {
   const c = rule.config;
   if (!c.enabled || !rule.enabled_at || blockedNotifications[c.id]) return [];
+  // Rechecked both when scheduling and before sending queued legacy reminders.
+  if (["LOY_01", "EXP_01", "EXP_02", "PROMO_01"].includes(c.id)) {
+    const [program] = await tx.query<{ reward_mode: string }>(
+      "SELECT reward_mode FROM program_versions ORDER BY version DESC LIMIT 1",
+    );
+    if (program?.reward_mode === "discount") return [];
+  }
   let source = "";
   const rental = `SELECT r.*,row_number() OVER(PARTITION BY user_id ORDER BY completed_at,id) ride_number FROM rentals r WHERE r.mode='operational' AND r.status='completed' AND r.completed_at IS NOT NULL`;
   switch (c.id) {

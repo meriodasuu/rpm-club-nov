@@ -7,6 +7,7 @@ import {
   BookOpen,
   ScrollText,
   ArrowUpRight,
+  ArrowRight,
   ChevronRight,
 } from "lucide-react";
 import {
@@ -430,11 +431,9 @@ export function RoutesScreen() {
 export function WikiScreen({
   conditions = false,
   account,
-  support,
 }: {
   conditions?: boolean;
   account: AccountSnapshot;
-  support: string;
 }) {
   const r = useResource<{ items: ClubContent[] }>("club/content?kind=wiki");
   const [category, setCategory] = useState("faq"),
@@ -467,18 +466,14 @@ export function WikiScreen({
             </li>
           </ol>
           <p>
-            {account.program.rewardMode === "discount"
-              ? "Скидка определяется вашей картой и фиксируется при отправке заявки. Дополнительный cashback за аренду не начисляется."
-              : "Cashback начисляется после завершения и полной оплаты аренды. Процент зависит от уровня карты."}
+            Скидка определяется вашей картой и фиксируется при отправке заявки.
+            Оплата аренды — на месте.
           </p>
           {account.program.tiers.map((t) => (
             <div className="condition-tier" key={t.code}>
               <strong>{tierName(t)}</strong>
               <span>
-                от {money(t.thresholdKopecks)} · {t.rateBps / 100}%{" "}
-                {account.program.rewardMode === "discount"
-                  ? "скидка"
-                  : "cashback"}
+                от {money(t.thresholdKopecks)} · {t.rateBps / 100}% скидка
               </span>
               <ul>
                 {resolveTierBenefits(account.program.tiers, t.code).map(
@@ -546,14 +541,9 @@ export function WikiScreen({
           Команда RPM поможет с вашим вопросом.
         </Empty>
       )}
-      <a
-        href={support}
-        target="_blank"
-        rel="noreferrer"
-        className="button button-outline button-full"
-      >
-        Связаться с RPM <ArrowUpRight size={17} />
-      </a>
+      <Link href="/contacts" className="button button-outline button-full">
+        Связаться с RPM <ArrowRight size={17} />
+      </Link>
     </>
   );
 }

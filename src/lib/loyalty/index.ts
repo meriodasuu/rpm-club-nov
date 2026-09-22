@@ -92,6 +92,7 @@ async function rewardReferral(tx:Db,ref:Referral,rentalId:string,p:Program,actor
     const [count]=await tx.query<{count:string}>('SELECT count(*)::text AS count FROM rentals WHERE user_id=$1 AND is_qualified',[ref.referred_id]);
     if(count.count!=='1'){await tx.query("UPDATE referrals SET status='ineligible',reason='existing_rentals' WHERE id=$1",[ref.id]);return;}
     if(await qualifyManualReferral(tx,ref,rentalId,p.id,actor))return;
+    if(p.rewardMode==='discount'){await tx.query("UPDATE referrals SET status='ineligible',reason='manual_program_not_configured',qualifying_rental_id=$2,program_version_id=$3 WHERE id=$1",[ref.id,rentalId,p.id]);return;}
     await tx.query("UPDATE referrals SET status='qualified',qualifying_rental_id=$2,referrer_reward=$3,referred_reward=$4,program_version_id=$5 WHERE id=$1",[ref.id,rentalId,p.referrerReward,p.referredReward,p.id]);ref={...ref,status:'qualified',qualifying_rental_id:rentalId,referrer_reward:p.referrerReward,referred_reward:p.referredReward,program_version_id:p.id};
   }
   const states=await tx.query<{status:string}>('SELECT status FROM users WHERE id=ANY($1::uuid[])',[ [ref.referrer_id,ref.referred_id] ]);if(states.some(x=>x.status==='blocked')){await tx.query("UPDATE referrals SET reason='blocked_hold' WHERE id=$1",[ref.id]);return;}

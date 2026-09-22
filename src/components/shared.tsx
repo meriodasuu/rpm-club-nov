@@ -156,9 +156,9 @@ export function Failure({
           </button>
         )
       )}
-      <a className="text-link" href="https://rpmrent.ru">
+      <Link className="text-link" href="/contacts">
         Связаться с RPM
-      </a>
+      </Link>
     </div>
   );
 }

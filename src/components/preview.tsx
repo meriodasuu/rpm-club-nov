@@ -35,7 +35,7 @@ export function Preview() {
             <span>Новый уровень.</span>
           </h1>
           <p>
-            RPM Club объединяет аренды, Bonus и привилегии в одном пространстве.
+            RPM Club объединяет аренды, скидки и привилегии в одном пространстве.
           </p>
           <div className="preview-actions">
             <button

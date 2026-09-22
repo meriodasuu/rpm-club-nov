@@ -83,9 +83,7 @@ function ProgramForm({
   const guard = useUnsavedChanges();
   const thresholdsRevision = useRef(0);
   const [tiers, setTiers] = useState<TierRule[]>(program.tiers);
-  const [rewardMode, setRewardMode] = useState(
-    program.rewardMode ?? "cashback",
-  );
+  const rewardMode = "discount";
   return (
     <form
       ref={formRef}
@@ -121,10 +119,10 @@ function ProgramForm({
                 .map((s) => s.trim())
                 .filter(Boolean),
             })),
-            redemptionLimitBps: Math.round(Number(value("limit")) * 100),
-            expiryDays: Number(value("expiry")),
-            referrerReward: value("referrer"),
-            referredReward: value("referred"),
+            redemptionLimitBps: 0,
+            expiryDays: program.expiryDays,
+            referrerReward: "0",
+            referredReward: "0",
             programStartsAt: resolveProgramStartsAt(
               value("start"),
               program.programStartsAt,
@@ -149,21 +147,12 @@ function ProgramForm({
           1. Измените условия. 2. Проверьте влияние порогов. 3. Укажите причину,
           подтвердите и опубликуйте редакцию.
         </p>
-        <Field label="Механика программы">
-          <select
-            value={rewardMode}
-            onChange={(e) =>
-              setRewardMode(e.target.value as "cashback" | "discount")
-            }
-          >
-            <option value="cashback">Cashback в Bonus</option>
-            <option value="discount">Скидка на аренду</option>
-          </select>
-        </Field>
+        <p>
+          <strong>Скидка на аренду</strong>
+        </p>
         <p className="small-note">
-          Скидка фиксируется при заявке и уменьшает стоимость аренды. В режиме
-          скидок новые аренды не приносят cashback. Прежние Bonus и история
-          сохраняются. Процент применяется только после публикации редакции.
+          Скидка фиксируется при заявке и уменьшает стоимость аренды. Новые
+          условия применяются после публикации редакции.
         </p>
         {
           <button
@@ -184,7 +173,6 @@ function ProgramForm({
                     .filter(Boolean),
                 }));
                 setTiers(sixTierDraft(current));
-                setRewardMode("discount");
                 setPreview(null);
                 thresholdsRevision.current++;
                 guard.markDirty();
@@ -243,14 +231,12 @@ function ProgramForm({
                   required
                 />
               </Field>
-              <Field
-                label={rewardMode === "discount" ? "Скидка, %" : "Cashback, %"}
-              >
+              <Field label="Скидка, %">
                 <input
                   name={t.code + "-rate"}
                   type="number"
                   min={0}
-                  max={rewardMode === "discount" ? 99.99 : 100}
+                  max={99.99}
                   step="0.01"
                   defaultValue={t.rateBps / 100}
                   required
@@ -267,45 +253,6 @@ function ProgramForm({
           </section>
         ))}
         <div className="form-grid">
-          <Field label="Максимальная оплата Bonus, %">
-            <input
-              name="limit"
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              defaultValue={program.redemptionLimitBps / 100}
-              required
-            />
-          </Field>
-          <Field label="Срок действия Bonus, дней">
-            <input
-              name="expiry"
-              type="number"
-              min={1}
-              max={3650}
-              defaultValue={program.expiryDays}
-              required
-            />
-          </Field>
-          <Field label="Прежняя программа: пригласившему, Bonus">
-            <input
-              name="referrer"
-              readOnly
-              inputMode="decimal"
-              defaultValue={program.referrerReward}
-              required
-            />
-          </Field>
-          <Field label="Прежняя программа: приглашённому, Bonus">
-            <input
-              name="referred"
-              readOnly
-              inputMode="decimal"
-              defaultValue={program.referredReward}
-              required
-            />
-          </Field>
           <Field label="Начало программы · Москва">
             <input
               name="start"
@@ -320,16 +267,15 @@ function ProgramForm({
           </Field>
         </div>
         <p className="small-note">
-          Новые награды настраиваются в разделе «Приглашения друзей». Значения
-          Bonus выше сохранены для прежней программы.
+          Награды за приглашение настраиваются в разделе «Приглашения друзей».
         </p>
         <Field label="Причина изменения">
           <textarea name="reason" required minLength={3} maxLength={1000} />
         </Field>
         <label className="checkbox-field">
           <input type="checkbox" required />
-          Подтверждаю публикацию новой редакции. Прошлые начисления сохранят
-          свои условия.
+          Подтверждаю публикацию новой редакции. Ранее оформленные аренды
+          сохранят свои условия.
         </label>
         <FormMessage error={error} />
         {!preview && (

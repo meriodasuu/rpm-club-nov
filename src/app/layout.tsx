@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     template: "%s · RPM Club",
   },
   description:
-    "Закрытый цифровой клуб RPM Rent. Ваши аренды, Bonus и привилегии.",
+    "Закрытый цифровой клуб RPM Rent. Ваши аренды, скидки и привилегии.",
   robots: { index: false, follow: false },
 };
 export const viewport: Viewport = {

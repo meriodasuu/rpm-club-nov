@@ -63,7 +63,7 @@ export async function clientRoute(
       staff_access: !!staff,
       links: {
         catalog: process.env.CATALOG_URL ?? "https://rpmrent.ru/cars",
-        support: process.env.SUPPORT_URL ?? "https://rpmrent.ru",
+        support: "/contacts",
       },
     });
   }

@@ -22,6 +22,7 @@ import {
   LogOut,
   CarFront,
 } from "lucide-react";
+import { ContactsScreen } from "./contacts";
 import { CardCarousel } from "./cards";
 import { NotificationActivity, NotificationPreferences } from "./notifications";
 export { MembershipCard } from "./cards";
@@ -77,6 +78,42 @@ function track(name: string, entityId?: string) {
     name,
     entityId,
   }).catch(() => undefined);
+}
+
+// Public support must remain usable when sign-in or the account API is unavailable.
+export function ContactsApp() {
+  useEffect(() => {
+    window.Telegram?.WebApp?.ready();
+    window.Telegram?.WebApp?.expand();
+  }, []);
+  return (
+    <div className="mini-backdrop">
+      <main className="mini-shell">
+        <header className="mini-header">
+          <Link href="/home" aria-label="RPM Club — Главная">
+            <Brand />
+          </Link>
+          <Link href="/profile" className="avatar" aria-label="Профиль">
+            <UserRound size={20} />
+          </Link>
+        </header>
+        <div className="mini-content">
+          <Link className="mini-back-link" href="/home">
+            ← На главную
+          </Link>
+          <ContactsScreen />
+        </div>
+        <nav className="bottom-nav" aria-label="Основная навигация">
+          {navigation.map((n) => (
+            <Link key={n.href} href={n.href}>
+              <n.icon size={23} strokeWidth={1.65} />
+              <span>{n.label}</span>
+            </Link>
+          ))}
+        </nav>
+      </main>
+    </div>
+  );
 }
 
 export function MiniApp({
@@ -168,7 +205,6 @@ export function MiniApp({
             <WikiScreen
               conditions={screen === "conditions"}
               account={account}
-              support={account.links.support}
             />
           )}
           {screen === "home" && <HomeScreen account={account} />}
@@ -200,7 +236,6 @@ function HomeScreen({ account }: { account: Account }) {
   const currentTier = account.program.tiers.find(
     (t) => t.code === account.tier,
   )!;
-  const discount = account.program.rewardMode === "discount";
   return (
     <>
       <p className="home-greeting">
@@ -234,13 +269,8 @@ function HomeScreen({ account }: { account: Account }) {
           <small>Карта и привилегии в Club</small>
         </div>
         <div className="home-membership-rate">
-          <strong>
-            {(discount
-              ? account.discount_rate_bps
-              : account.cashback_rate_bps) / 100}
-            %
-          </strong>
-          <span>{discount ? "скидка" : "cashback"}</span>
+          <strong>{account.discount_rate_bps / 100}%</strong>
+          <span>скидка</span>
         </div>
         <ChevronRight size={20} aria-hidden="true" />
       </Link>
@@ -312,9 +342,7 @@ function ClubScreen({ account }: { account: Account }) {
   );
 }
 function HistoryScreen() {
-  const [tab, setTab] = useState<"rentals" | "transactions" | "requests">(
-    "rentals",
-  );
+  const [tab, setTab] = useState<"rentals" | "requests">("rentals");
   return (
     <>
       <h1>История</h1>
@@ -328,116 +356,52 @@ function HistoryScreen() {
         </button>
         <button
           role="tab"
-          aria-selected={tab === "transactions"}
-          onClick={() => setTab("transactions")}
-        >
-          Bonus
-        </button>
-        <button
-          role="tab"
           aria-selected={tab === "requests"}
           onClick={() => setTab("requests")}
         >
           Заявки
         </button>
       </div>
-      {tab === "requests" ? (
-        <RentalRequests />
-      ) : (
-        <HistoryList key={tab} tab={tab} />
-      )}
+      {tab === "requests" ? <RentalRequests /> : <RentalHistory />}
     </>
   );
 }
-function HistoryList({ tab }: { tab: "rentals" | "transactions" }) {
+function RentalHistory() {
   const [cursor, setCursor] = useState<string | null>(null),
     [previous, setPrevious] = useState<Record<string, unknown>[]>([]);
   const { data, error, loading, refresh } = useResource<{
     items: Record<string, unknown>[];
     nextCursor: string | null;
   }>(
-    `me/${tab}?limit=20${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`,
+    `me/rentals?limit=20${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`,
   );
   if (error) return <Failure error={error} retry={refresh} />;
   if (loading) return <Loading />;
   const items = [...previous, ...(data?.items ?? [])];
   if (!items.length)
     return (
-      <Empty
-        title={
-          tab === "rentals"
-            ? "Аренд пока нет"
-            : "История Bonus начинается здесь"
-        }
-      >
-        После завершённой аренды здесь появятся ваши операции.
+      <Empty title="Аренд пока нет">
+        После завершённой аренды здесь появятся ваши поездки.
       </Empty>
     );
   return (
     <div className="history-list">
       {items.map((row) => (
         <article className="history-row" key={String(row.id)}>
-          {tab === "rentals" ? (
-            <div className="car-thumb">
-              <CarFront size={22} aria-hidden="true" />
-            </div>
-          ) : (
-            <div
-              className={
-                "transaction-symbol " +
-                (BigInt(String(row.amount ?? 0)) > 0n ? "positive" : "")
-              }
-            >
-              <Gift size={20} />
-            </div>
-          )}
+          <div className="car-thumb">
+            <CarFront size={22} aria-hidden="true" />
+          </div>
           <div className="history-info">
-            <strong>
-              {tab === "rentals"
-                ? String(row.car_name)
-                : (labels[String(row.type)] ?? String(row.type))}
-            </strong>
+            <strong>{String(row.car_name)}</strong>
             <span>
-              {tab === "rentals"
-                ? `${date(String(row.start_date))} — ${date(String(row.end_date))}`
-                : date(String(row.created_at))}
+              {date(String(row.start_date))} — {date(String(row.end_date))}
             </span>
-            {tab === "transactions" && row.reason ? (
-              <small>
-                {String(row.reason) === "opening_balance"
-                  ? "Перенос подтверждённого остатка"
-                  : String(row.reason)}
-              </small>
-            ) : null}
-            {tab === "transactions" &&
-            row.expires_at &&
-            BigInt(String(row.remaining_amount ?? 0)) > 0n ? (
-              <small>
-                Остаток {money(String(row.remaining_amount), false)} · до{" "}
-                {date(String(row.expires_at))}
-              </small>
-            ) : null}
           </div>
           <div className="history-amount">
             <strong>
-              {tab === "rentals"
-                ? money(
-                    String(row.current_amount_kopecks ?? row.amount_kopecks),
-                  )
-                : (BigInt(String(row.amount ?? 0)) > 0n ? "+" : "") +
-                  money(String(row.amount ?? 0), false)}
+              {money(String(row.current_amount_kopecks ?? row.amount_kopecks))}
             </strong>
-            <span
-              className={
-                tab === "transactions" && BigInt(String(row.amount ?? 0)) > 0n
-                  ? "positive"
-                  : ""
-              }
-            >
-              {tab === "rentals"
-                ? (labels[String(row.status)] ?? String(row.status))
-                : "Bonus"}
-            </span>
+            <span>{labels[String(row.status)] ?? String(row.status)}</span>
           </div>
         </article>
       ))}
@@ -525,21 +489,8 @@ function ProfileScreen({
           <dd>{money(account.total_rental_amount)}</dd>
         </div>
         <div>
-          <dt>
-            {account.program.rewardMode === "discount"
-              ? "Скидка по карте"
-              : "Cashback по карте"}
-          </dt>
-          <dd>
-            {(account.program.rewardMode === "discount"
-              ? account.discount_rate_bps
-              : account.cashback_rate_bps) / 100}
-            %
-          </dd>
-        </div>
-        <div>
-          <dt>Доступно Bonus</dt>
-          <dd>{money(account.bonus_available, false)}</dd>
+          <dt>Скидка по карте</dt>
+          <dd>{account.discount_rate_bps / 100}%</dd>
         </div>
       </dl>
       <div style={{ textAlign: "center", margin: "25px 0" }}>
@@ -588,9 +539,8 @@ function ProfileScreen({
           </>
         ) : (
           <p>
-            Пригласите друга. После его первой аренды вам —{" "}
-            {money(account.program.referrerReward, false)} Bonus, другу —{" "}
-            {money(account.program.referredReward, false)}.
+            Поделитесь приглашением с другом. Условия наград появятся здесь,
+            когда команда RPM запустит программу приглашений.
           </p>
         )}
         <div className="referral-code">
@@ -633,10 +583,10 @@ function ProfileScreen({
       ) : null}
       <NotificationPreferences />
       <div className="profile-links">
-        <a href={account.links.support} target="_blank" rel="noreferrer">
-          <span>Написать RPM</span>
-          <ArrowUpRight size={18} />
-        </a>
+        <Link href="/contacts">
+          <span>Связаться с RPM</span>
+          <ChevronRight size={18} />
+        </Link>
         <Link href="/legal/rules">
           <span>Правила RPM Club</span>
           <ChevronRight size={18} />

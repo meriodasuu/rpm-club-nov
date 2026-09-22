@@ -524,7 +524,7 @@ export async function adminRoute(
     const input = await body(
       request,
       z.object({
-        rewardMode: z.enum(["cashback", "discount"]).default("cashback"),
+        rewardMode: z.literal("discount").default("discount"),
         tiers: z
           .array(
             z.object({

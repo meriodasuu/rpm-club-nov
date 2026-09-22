@@ -2616,3 +2616,12 @@ fieldset.panel-body {
     flex-wrap: wrap;
   }
 }
+
+/* In-app RPM contacts */
+.contact-card{padding:24px;margin:18px 0;border:1px solid var(--border, #28282c);border-radius:20px;background:var(--surface, #141416)}
+.contact-card>svg{color:var(--accent, #e74639)}
+.contact-card h2{font-size:20px;margin:14px 0 10px}
+.contact-card p{line-height:1.65;color:var(--muted, #a2a2a8)}
+.contact-phone{display:inline-block;font-size:25px;font-weight:600;letter-spacing:-.5px;margin:4px 0 20px;white-space:nowrap}
+.contact-actions{display:grid;gap:10px}
+.contact-card .text-link{display:inline-flex;align-items:center;gap:8px;margin-top:8px}

@@ -48,9 +48,7 @@ export function MembershipCard({
         </span>
         <div className="card-bonus">
           <strong>{current.rateBps / 100}%</strong>
-          <span>
-            {account.program.rewardMode === "discount" ? "СКИДКА" : "CASHBACK"}
-          </span>
+          <span>СКИДКА</span>
         </div>
       </div>
     </section>

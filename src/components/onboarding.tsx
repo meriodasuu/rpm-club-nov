@@ -30,6 +30,7 @@ function enterClub() {
     "/routes",
     "/wiki",
     "/conditions",
+    "/contacts",
   ];
   let url: URL | null = null;
   try {
@@ -136,8 +137,8 @@ export function Onboarding({ botUrl }: { botUrl?: string }) {
           аренда.
         </h1>
         <p className="onboarding-intro">
-          Ваши поездки открывают новые привилегии. Карта клуба, RPM Bonus и
-          особые предложения — здесь.
+          Ваши поездки открывают новые привилегии. Карта клуба, скидки на аренду
+          и особые предложения — здесь.
         </p>
         {loading ? (
           <Spinner />

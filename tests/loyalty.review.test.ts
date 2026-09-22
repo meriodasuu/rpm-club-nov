@@ -65,10 +65,12 @@ suite('review regressions on PostgreSQL', () => {
     const pending = kind === 'debit' ? debitBonus({ userId: id, amount: '1', type: 'manual_debit', reason: 'wait', idempotencyKey: key() }, admin) : getAccountSnapshot(id);
     const settled = pending.then(value => ({ value, error: null }), error => ({ value: null, error }));
     try { // Let PostgreSQL confirm the second transaction is actually waiting on the holder.
-      for (let attempt = 0; attempt < 100; attempt++) {
+      const deadline = Date.now() + 5000;
+      for (;;) {
         const [row] = await query<{ waiting: boolean }>("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT * FROM loyalty_accounts%') AS waiting");
         if (row.waiting) break;
-        if (attempt === 99) throw new Error('debit/snapshot did not reach account lock');
+        if (Date.now() >= deadline) throw new Error('debit/snapshot did not reach account lock');
+        await new Promise(resolve => setTimeout(resolve, 25));
       }
     } finally { release(); await holder; }
     const outcome = await settled;

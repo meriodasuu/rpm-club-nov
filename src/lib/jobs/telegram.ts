@@ -40,7 +40,7 @@ export async function telegramMessage(event: OutboxEvent, target: string): Promi
   if (event.event_type === 'TIER_CHANGED' || (audit?.before_data?.tier && audit.after_data?.tier !== audit.before_data.tier)) lines.push(`Новый статус: ${tierName(snapshot.program.tiers.find(t=>t.code===snapshot.tier)!)}.`, ...snapshot.benefits);
   else lines.push(`Статус: ${tierName(snapshot.program.tiers.find(t=>t.code===snapshot.tier)!)}.`);
   if(snapshot.program.rewardMode === 'discount') lines.push(`Скидка по вашей карте: ${snapshot.discount_rate_bps / 100}%.`);
-  if(snapshot.program.rewardMode !== 'discount' || BigInt(snapshot.bonus_available)>0n) lines.push(`Доступно: ${snapshot.bonus_available} RPM Bonus.`);
+  if(snapshot.program.rewardMode !== 'discount') lines.push(`Доступно: ${snapshot.bonus_available} RPM Bonus.`);
   if (snapshot.next_tier && snapshot.remaining_amount) lines.push(`До ${tierName(snapshot.program.tiers.find(t=>t.code===snapshot.next_tier)!)}: ${(BigInt(snapshot.remaining_amount) / 100n).toLocaleString('ru-RU')} ₽ суммы аренд.`);
   return lines.join('\n').slice(0, 4000);
 }
