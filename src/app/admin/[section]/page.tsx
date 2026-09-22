@@ -1,0 +1,32 @@
+import { notFound } from "next/navigation";
+import { AdminApp } from "@/components/admin/pages";
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ section: string }>;
+}) {
+  const { section } = await params;
+  if (
+    ![
+      "dashboard",
+      "customers",
+      "rentals",
+      "transactions",
+      "import",
+      "offers",
+      "settings",
+      "tiers",
+      "referrals",
+      "audit",
+      "deliveries",
+      "team",
+      "fleet",
+      "routes",
+      "wiki",
+      "requests",
+      "triggers",
+    ].includes(section)
+  )
+    notFound();
+  return <AdminApp section={section} />;
+}

@@ -1,0 +1,2 @@
+rental_id;customer_name;phone;crm_customer_id;car_name;start_date;end_date;amount;status;payment_status
+EXAMPLE-REMOVE-BEFORE-IMPORT;Тестовый клиент;+79990000000;EXAMPLE-CUSTOMER;Porsche 911;2026-09-01;2026-09-03;35000;completed;paid
