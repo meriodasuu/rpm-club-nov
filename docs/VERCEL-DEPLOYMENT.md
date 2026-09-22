@@ -2,6 +2,8 @@
 
 Target: `rpm-club-demo` in `meriodasuus-projects`. Publish a Preview deployment first.
 
+Latest UI fix (2026-09-22): https://rpm-club-demo-ivg2nf0t2-meriodasuus-projects.vercel.app/onboarding — `dpl_4S71HCLzP9TwnUHpZLxTSXzTxLWX`, READY, implementation commit `772e95f`. Home now focuses on rental requests and services; Club contains the card carousel, progress and membership benefits. TypeScript, ESLint, browser checks and Vercel build passed. Telegram webhook/default and owner menus were verified with this origin; Vault worker origin updated. No migrations or business-rule activation.
+
 ## Prepared on 2026-09-13
 
 - Restored Supabase project `RPM-RENT` (`yzxzkhrjnkotfnywnfxb`).
