@@ -14,7 +14,17 @@ Target: `rpm-club-demo` in `meriodasuus-projects`. Publish a Preview deployment 
 
 The CA is obtained from Supabase's Studio configuration: `https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt`. Its base64 representation is `DATABASE_SSL_CA_BASE64`; certificate and hostname validation remain enabled.
 
-## Published Preview
+## Published Preview — 2026-09-22
+
+- Current URL: https://rpm-club-demo-mxfygis2t-meriodasuus-projects.vercel.app/onboarding
+- Deployment: `dpl_5DFKiC8ejDrG4a3pCcrwSKE6hEdP`, READY. Implementation commit `5b0a3dd` on `codex/rpm-club`; direct CLI deployment, no Git remote is configured.
+- Includes the admin UX/referral package and 14 applicable lifecycle scenarios, booking drafts, shared daily limits and six-tier discount-program preparation. CARD_01/PAY_01/PAY_02 explicitly unavailable: card issued on registration, payment on site.
+- Applied `20260922120313_manual_referral_awards.sql` and `20260922144120_lifecycle_notifications.sql`, recording their exact local SHA-256 in schema_migrations. All 61 application tables have RLS; Supabase Security Advisor returned no findings.
+- 169 tests / 27 files passed, TypeScript, ESLint and both local/Vercel builds passed. Local browser checks and limitations: ADMIN-UX-RELEASE.md.
+- Telegram webhook, default menu and owner chat menu read back with the new origin; pending updates 0. Vault `rpm_club_worker_origin` updated to this deployment. No test messages sent to real customers.
+- Business activation remains separate: customer publishes discount thresholds/rates/benefits and referral terms, then enables chosen lifecycle rules. Existing working program remains v1 with five cashback tiers until that publication.
+
+## Previous previews
 
 - Latest URL: https://rpm-club-demo-60tjc4mpc-meriodasuus-projects.vercel.app/onboarding
 - Latest deployment: `dpl_AHs74hTAZBtnYMMBSydxaDBbpjPk`, `READY` (2026-09-20). Exact Moscow pickup times, a two-hour rental reminder, completion notifications independent of payment, and publication announcements. Applied `20260920164023_notification_timing.sql`; registry checksum matches the local migration. Weather city is Saint Petersburg; provider key and timing remain pending.
