@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ImageUpload } from "./image-upload";
+import { LifecycleNotifications } from "./notifications";
 import { useUnsavedChanges } from "./unsaved";
 import Link from "next/link";
 import { Plus, Pencil, CarFront, Map, BookOpen, Bell } from "lucide-react";
@@ -484,6 +485,8 @@ export function TriggerRulesPage() {
         title="Автоуведомления"
         subtitle="Бот отправляет сообщения по событиям. Результаты доступны в разделе «Доставка сообщений»"
       />
+      <LifecycleNotifications />
+      <h2>Поездки, публикации и погода</h2>
       <p className="small-note">
         До аренды — за указанное в правиле число часов до времени выдачи
         (Москва). После аренды — сразу после статуса «Завершена», независимо от

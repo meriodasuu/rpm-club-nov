@@ -1,4 +1,6 @@
 const actions: Record<string, string> = {
+  'notifications.rule':'Изменены настройки сценария',
+  'notifications.limits':'Изменены суточные лимиты',
   "staff.bot_link_login": "Вход по ссылке из бота",
   "staff.login": "Вход сотрудника",
   "staff.logout": "Выход сотрудника",
@@ -43,6 +45,7 @@ export const staffRoleLabel = (value: string) =>
 export const maintenanceStageLabel = (value: string) =>
   ({
     triggers: "Планирование уведомлений",
+    autopush: "Сценарии участника",
     bonus_expiration: "Срок действия Bonus",
     referrals: "Награды за приглашения",
     imports: "Импорт",

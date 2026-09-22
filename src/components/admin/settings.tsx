@@ -13,9 +13,9 @@ import { PageHeading, DataTable, type Row } from "./tables";
 import type { Program } from "@/lib/loyalty/types";
 import {
   CARD_COLORS,
-  TIER_CODES,
   tierColor,
   tierName,
+  sixTierDraft,
   resolveProgramStartsAt,
   type TierRule,
 } from "@/lib/loyalty/rules";
@@ -165,35 +165,43 @@ function ProgramForm({
           скидок новые аренды не приносят cashback. Прежние Bonus и история
           сохраняются. Процент применяется только после публикации редакции.
         </p>
-        {!tiers.some((t) => t.code === "PLATINUM") && (
+        {
           <button
             type="button"
             className="button button-outline"
             onClick={() => {
-              const next: TierRule = {
-                code: "PLATINUM",
-                thresholdKopecks: "",
-                rateBps: 0,
-                benefits: [],
-                color: "diamond",
-              };
-              setTiers(
-                [...tiers, next].sort(
-                  (a, b) =>
-                    TIER_CODES.indexOf(a.code) - TIER_CODES.indexOf(b.code),
-                ),
-              );
-              setPreview(null);
-              thresholdsRevision.current++;
-              guard.markDirty();
+              try {
+                const f = new FormData(formRef.current!);
+                const current = tiers.map((t) => ({
+                  ...t,
+                  thresholdKopecks: String(f.get(t.code + "-threshold") ?? "")
+                    ? rublesInput(String(f.get(t.code + "-threshold")))
+                    : "",
+                  rateBps: Math.round(Number(f.get(t.code + "-rate")) * 100),
+                  benefits: String(f.get(t.code + "-benefits") ?? "")
+                    .split("\n")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                }));
+                setTiers(sixTierDraft(current));
+                setRewardMode("discount");
+                setPreview(null);
+                thresholdsRevision.current++;
+                guard.markDirty();
+              } catch (e) {
+                setError((e as Error).message);
+              }
             }}
           >
-            Добавить шестой уровень
+            Подготовить шесть уровней: Старт → VIP
           </button>
-        )}
+        }
         {tiers.map((t) => (
-          <section className="settings-tier" key={t.code}>
-            <h3>{t.code}</h3>
+          <section
+            className="settings-tier"
+            key={t.code + (t.displayName ?? "")}
+          >
+            <h3>{tierName(t)}</h3>
             <div className="form-grid">
               <Field label="Название карты">
                 <input

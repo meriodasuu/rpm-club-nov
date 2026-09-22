@@ -143,6 +143,10 @@ export async function clubTriggerMessage(
   )
     return null;
   const lines = ["RPM Club", rule.message];
+  if(kind==='after_rental'){
+    const [replacement]=await query(`SELECT n.id FROM notification_rules n WHERE (n.config->>'enabled')::boolean AND n.enabled_at<=$3::timestamptz AND n.id=CASE WHEN (SELECT count(*) FROM rentals r WHERE r.user_id=$1 AND r.status='completed' AND r.mode='operational' AND ROW(r.completed_at,r.id)<= (SELECT completed_at,id FROM rentals WHERE id=$2))=1 THEN 'RIDE_01' ELSE 'RIDE_02' END`,[event.user_id,resourceId,occurrenceAt]);
+    if(replacement)return null;
+  }
   if (
     kind === "before_rental" ||
     kind === "after_rental" ||

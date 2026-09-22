@@ -190,6 +190,8 @@ export async function clubRoute(
             key,
           ],
         );
+        await tx.query("UPDATE booking_drafts SET completed_at=now() WHERE user_id=$1 AND completed_at IS NULL",[userId]);
+        await tx.query("UPDATE notification_runs SET converted_at=coalesce(converted_at,now()) WHERE user_id=$1 AND trigger_id IN ('BOOK_01','RET_01','APP_01') AND status='sent' AND sent_at<=now() AND sent_at+(config->>'attributionDays')::int*interval '1 day'>=now()",[userId]);
         return row;
       });
       return json(result, 201);

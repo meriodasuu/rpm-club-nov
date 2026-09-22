@@ -3,6 +3,8 @@ import { getAccountSnapshot, TIER_CODES, type TierCode } from '@/lib/loyalty';
 import { HttpError } from '@/lib/http';
 import { ProviderError } from './provider';
 import { clubTriggerMessage } from '@/lib/club/triggers';
+import { tierName } from '@/lib/loyalty/rules';
+import { reserveNotificationSlot } from '@/lib/notifications/budget';
 
 export interface OutboxEvent { id: string; event_key: string; event_type: string; user_id: string | null; aggregate_id: string; account_version: string; payload: Record<string, unknown>; created_at: string }
 export interface Delivery extends OutboxEvent { delivery_id: string; channel: string; target: string; attempts: number; lease_token: string }
@@ -16,6 +18,9 @@ export async function telegramMessage(event: OutboxEvent, target: string): Promi
   const [user] = await query<{ status: string; telegram_id: string | null; telegram_reachable: boolean; marketing_consent: boolean; member_since: string | null }>('SELECT u.status,u.telegram_id,u.telegram_reachable,u.marketing_consent,a.member_since FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.id=$1', [event.user_id]);
   if (!user || user.status !== 'active' || !user.telegram_reachable || user.telegram_id !== target || !user.member_since || new Date(event.created_at) < new Date(user.member_since)) return null;
   const snapshot = await getAccountSnapshot(event.user_id);
+  if(event.event_type==='TIER_CHANGED'){
+    const [replacement]=await query("SELECT id FROM notification_rules WHERE id='LVL_02' AND (config->>'enabled')::boolean AND enabled_at<=$1",[event.created_at]);if(replacement)return null;
+  }
   if (event.event_type === 'CLUB_TRIGGER') return clubTriggerMessage(event, user.marketing_consent, snapshot.tier);
   if (event.event_type === 'RPM_DROP') {
     if (!user.marketing_consent || typeof event.payload.offer_id !== 'string' || !/^[0-9a-f-]{36}$/.test(event.payload.offer_id)) return null;
@@ -32,11 +37,11 @@ export async function telegramMessage(event: OutboxEvent, target: string): Promi
     if (rental) lines.push(snapshot.program.rewardMode === 'discount' ? `Аренда ${rental.car_name} завершена.` : `Аренда ${rental.car_name}. Начислено ${rental.bonus} RPM Bonus.`);
   }
   const [audit] = await query<{ before_data: { tier?: string }; after_data: { tier?: string } }>(`SELECT before_data,after_data FROM audit_logs WHERE entity_id=$1 AND after_data->>'account_version'=$2 ORDER BY created_at DESC LIMIT 1`, [event.user_id, event.account_version]);
-  if (event.event_type === 'TIER_CHANGED' || (audit?.before_data?.tier && audit.after_data?.tier !== audit.before_data.tier)) lines.push(`Новый статус: ${snapshot.tier}.`, ...snapshot.benefits);
-  else lines.push(`Статус: ${snapshot.tier}.`);
+  if (event.event_type === 'TIER_CHANGED' || (audit?.before_data?.tier && audit.after_data?.tier !== audit.before_data.tier)) lines.push(`Новый статус: ${tierName(snapshot.program.tiers.find(t=>t.code===snapshot.tier)!)}.`, ...snapshot.benefits);
+  else lines.push(`Статус: ${tierName(snapshot.program.tiers.find(t=>t.code===snapshot.tier)!)}.`);
   if(snapshot.program.rewardMode === 'discount') lines.push(`Скидка по вашей карте: ${snapshot.discount_rate_bps / 100}%.`);
   if(snapshot.program.rewardMode !== 'discount' || BigInt(snapshot.bonus_available)>0n) lines.push(`Доступно: ${snapshot.bonus_available} RPM Bonus.`);
-  if (snapshot.next_tier && snapshot.remaining_amount) lines.push(`До ${snapshot.next_tier}: ${(BigInt(snapshot.remaining_amount) / 100n).toLocaleString('ru-RU')} ₽ суммы аренд.`);
+  if (snapshot.next_tier && snapshot.remaining_amount) lines.push(`До ${tierName(snapshot.program.tiers.find(t=>t.code===snapshot.next_tier)!)}: ${(BigInt(snapshot.remaining_amount) / 100n).toLocaleString('ru-RU')} ₽ суммы аренд.`);
   return lines.join('\n').slice(0, 4000);
 }
 export async function deliverTelegram(delivery: Delivery): Promise<'succeeded' | 'suppressed'> {
@@ -45,6 +50,15 @@ export async function deliverTelegram(delivery: Delivery): Promise<'succeeded' |
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new HttpError(503, 'TELEGRAM_NOT_CONFIGURED', 'Telegram не настроен');
   const appUrl = process.env.APP_URL;
+  const category = delivery.event_type === 'RPM_DROP' || (delivery.event_type === 'CLUB_TRIGGER' && ['offer_reminder','new_route','weather'].includes(String(delivery.payload.kind))) ? 'marketing' : ['CLUB_TRIGGER','TIER_CHANGED'].includes(delivery.event_type) ? 'service' : 'transactional';
+  if(category!=='transactional' && delivery.user_id){
+    const [preference]=await query<{enabled:boolean}>('SELECT enabled FROM notification_profiles WHERE user_id=$1',[delivery.user_id]);
+    if(preference?.enabled===false)return 'suppressed';
+  }
+  if(!(await reserveNotificationSlot(delivery.target,category,'outbox:'+delivery.id))){
+    const [reset]=await query<{seconds:number}>("SELECT ceil(extract(epoch FROM (((date_trunc('day',now() AT TIME ZONE 'Europe/Moscow')+interval '1 day') AT TIME ZONE 'Europe/Moscow')-now())))::int seconds");
+    throw new ProviderError('notification_limit',429,reset.seconds);
+  }
   let response: Response;
   try { response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000), body: JSON.stringify({ chat_id: delivery.target, text: message, disable_web_page_preview: true, ...(appUrl?.startsWith('https://') ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть RPM Club', web_app: { url: appUrl } }]] } } : {}) }) }); }
   catch { throw new ProviderError('telegram', 503); }

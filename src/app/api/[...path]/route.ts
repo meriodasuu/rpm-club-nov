@@ -5,6 +5,7 @@ import { clientRoute } from "@/lib/api/client";
 import { adminRoute } from "@/lib/api/admin";
 import { clubRoute } from "@/lib/api/club";
 import { operationsRoute } from "@/lib/api/operations";
+import { notificationsRoute } from "@/lib/notifications/api";
 import { after } from "next/server";
 import { processJobs } from "@/lib/jobs";
 export const runtime = "nodejs";
@@ -22,6 +23,7 @@ async function route(request: Request, context: Context) {
     }
     for (const handler of [
       authRoute,
+      notificationsRoute,
       clubRoute,
       clientRoute,
       operationsRoute,

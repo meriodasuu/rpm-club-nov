@@ -35,6 +35,27 @@ export const DEFAULT_TIERS: TierRule[] = TIER_CODES.filter(
 export const tierColor = (tier: TierRule) =>
   tier.color ?? CARD_COLORS[TIER_CODES.indexOf(tier.code)];
 export const tierName = (tier: TierRule) => tier.displayName || tier.code;
+// Stable codes retain historical references; new display names belong to a new edition.
+export const APPROVED_TIER_NAMES: Record<TierCode, string> = {
+  MEMBER: "Старт",
+  DRIVE: "Серебро",
+  BLACK: "Золото",
+  PLATINUM: "Платина",
+  RED: "Black",
+  SIGNATURE: "VIP",
+};
+export function sixTierDraft(tiers: TierRule[]): TierRule[] {
+  return TIER_CODES.map((code, index) => ({
+    ...(tiers.find((t) => t.code === code) ?? {
+      code,
+      thresholdKopecks: "",
+      rateBps: 0,
+      benefits: [],
+    }),
+    displayName: APPROVED_TIER_NAMES[code],
+    color: CARD_COLORS[index],
+  }));
+}
 export function resolveTierBenefits(
   tiers: TierRule[],
   code: TierCode,

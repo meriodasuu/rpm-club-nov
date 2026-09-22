@@ -23,6 +23,7 @@ import {
   CarFront,
 } from "lucide-react";
 import { CardCarousel } from "./cards";
+import { NotificationActivity, NotificationPreferences } from "./notifications";
 export { MembershipCard } from "./cards";
 import {
   ClubLinks,
@@ -104,6 +105,21 @@ export function MiniApp({
     tg?.expand();
     if (tg?.initData) tg.BackButton.hide();
   }, []);
+  useEffect(() => {
+    if (
+      error &&
+      "code" in error &&
+      ["AUTH_REQUIRED", "SESSION_EXPIRED", "ONBOARDING_REQUIRED"].includes(
+        String(error.code),
+      )
+    ) {
+      sessionStorage.setItem(
+        "rpm:return-to",
+        location.pathname + location.search,
+      );
+      location.replace("/onboarding");
+    }
+  }, [error]);
   if (loading)
     return (
       <div className="mini-shell">
@@ -118,6 +134,7 @@ export function MiniApp({
     );
   return (
     <div className="mini-backdrop">
+      <NotificationActivity />
       <main className="mini-shell">
         <header className="mini-header">
           <Link href="/home" aria-label="RPM Club — Главная">
@@ -583,6 +600,7 @@ function ProfileScreen({
           ))}
         </section>
       ) : null}
+      <NotificationPreferences />
       <div className="profile-links">
         <a href={account.links.support} target="_blank" rel="noreferrer">
           <span>Написать RPM</span>

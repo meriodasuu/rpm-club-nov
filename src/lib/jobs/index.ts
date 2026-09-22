@@ -6,6 +6,7 @@ import { deliverTelegram, type Delivery, type OutboxEvent } from './telegram';
 import { ProviderError, retryDelay } from './provider';
 import { scheduleClubTriggers } from '@/lib/club/triggers';
 import { maintenanceStage,MaintenanceStageError } from './diagnostics';
+import { processNotifications } from '@/lib/notifications/engine';
 
 const TELEGRAM_EVENTS = ['BONUS_CHANGED', 'TIER_CHANGED', 'RPM_DROP', 'BOT_WELCOME', 'CLUB_TRIGGER'];
 const LEASE_SECONDS = 120;
@@ -79,6 +80,7 @@ async function maintenance() {
   const startedAt = new Date().toISOString();
   const stage = <T>(name:string,work:()=>Promise<T>)=>maintenanceStage(name,work,startedAt);
   const triggers = await stage('triggers',()=>scheduleClubTriggers());
+  await stage('autopush',()=>processNotifications(2));
   const expired = await stage('bonus_expiration',()=>expireBonuses(50));
   const referrals = await stage('referrals',()=>retryReferrals());
   const imports = await stage('imports',()=>processQueuedImports(1));

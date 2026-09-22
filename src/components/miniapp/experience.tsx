@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   CarFront,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   command,
+  api,
   useResource,
   Loading,
   Failure,
@@ -54,12 +55,25 @@ export function RentalScreen() {
   const r = useResource<{ items: ClubContent[] }>("club/content?kind=car");
   const [selected, setSelected] = useState<ClubContent | null>(null),
     [requestVersion, setRequestVersion] = useState(0);
+  const [resume, setResume] = useState<BookingDraft | null>(null),
+    [resumeError, setResumeError] = useState("");
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get("draft");
+    if (id)
+      void api<BookingDraft>("me/booking-draft?id=" + encodeURIComponent(id))
+        .then(setResume)
+        .catch((e) => setResumeError(e.message));
+  }, []);
+  const selectedCar =
+    selected ?? r.data?.items.find((c) => c.id === resume?.car_id);
   return (
     <>
       <h1>Аренда автомобиля</h1>
       <p className="screen-subtitle">
-        Выберите автомобиль и даты. Менеджер подтвердит вашу поездку.
+        Выберите автомобиль и даты. Менеджер подтвердит вашу поездку. Оплата на
+        месте.
       </p>
+      <FormMessage error={resumeError} />
       {r.error ? (
         <Failure error={r.error} retry={r.refresh} />
       ) : !r.data ? (
@@ -89,7 +103,10 @@ export function RentalScreen() {
                 <strong>{money(car.daily_price_kopecks)} / сутки</strong>
                 <button
                   className="button button-full"
-                  onClick={() => setSelected(car)}
+                  onClick={() => {
+                    setResume(null);
+                    setSelected(car);
+                  }}
                 >
                   Выбрать даты
                 </button>
@@ -100,12 +117,17 @@ export function RentalScreen() {
       )}
       <h2 className="section-title">Мои заявки</h2>
       <RentalRequests key={requestVersion} />
-      {selected && (
+      {selectedCar && (
         <BookingDialog
-          car={selected}
-          onClose={() => setSelected(null)}
+          car={selectedCar}
+          initial={resume}
+          onClose={() => {
+            setSelected(null);
+            setResume(null);
+          }}
           onDone={() => {
             setSelected(null);
+            setResume(null);
             setRequestVersion((v) => v + 1);
           }}
         />
@@ -123,23 +145,65 @@ type Quote = {
   carVersion: number;
   programId: string;
 };
+type BookingDraft = {
+  id: string;
+  car_id: string;
+  start_date: string;
+  end_date: string;
+  comment: string;
+  request_key: string;
+};
 function BookingDialog({
   car,
+  initial,
   onClose,
   onDone,
 }: {
   car: ClubContent;
+  initial?: BookingDraft | null;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [today] = useState(() => moscowDate());
-  const [start, setStart] = useState(today),
-    [end, setEnd] = useState(() => moscowDate(new Date(Date.now() + 86400000)));
+  const [start, setStart] = useState(initial?.start_date ?? today),
+    [end, setEnd] = useState(
+      () => initial?.end_date ?? moscowDate(new Date(Date.now() + 86400000)),
+    );
   const [quote, setQuote] = useState<Quote | null>(null),
-    [comment, setComment] = useState(""),
+    [comment, setComment] = useState(initial?.comment ?? ""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [key] = useState(() => crypto.randomUUID());
+  const [key] = useState(() => initial?.request_key ?? crypto.randomUUID());
+  const [draftMessage, setDraftMessage] = useState("");
+  useEffect(() => {
+    let current = true;
+    const timer = setTimeout(() => {
+      if (start >= today && end >= start && !busy)
+        void command("me/booking-draft", {
+          carId: car.id,
+          startDate: start,
+          endDate: end,
+          comment,
+          requestKey: key,
+        })
+          .then(() => {
+            if (current)
+              setDraftMessage(
+                "Выбор сохранён. Заявка отправится только после подтверждения.",
+              );
+          })
+          .catch(() => {
+            if (current)
+              setDraftMessage(
+                "Черновик не сохранён. Вы можете отправить заявку обычным способом.",
+              );
+          });
+    }, 600);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [car.id, start, end, comment, key, today, busy]);
   return (
     <Dialog title={car.title} onClose={onClose}>
       <form
@@ -179,6 +243,7 @@ function BookingDialog({
           }
         }}
       >
+        <p className="small-note">{draftMessage}</p>
         {car.body && <p className="preserve-lines small-note">{car.body}</p>}
         <Field label="Дата начала">
           <input

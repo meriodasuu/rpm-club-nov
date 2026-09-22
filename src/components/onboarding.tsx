@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { NotificationActivity } from "./miniapp/notifications";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Check, Phone } from "lucide-react";
 import {
@@ -17,6 +18,31 @@ type OnboardingState = {
   phone: string | null;
   documents: { id: string; type: string; version: string; title: string }[];
 };
+function enterClub() {
+  const next = sessionStorage.getItem("rpm:return-to");
+  sessionStorage.removeItem("rpm:return-to");
+  const allowed = [
+    "/home",
+    "/club",
+    "/rent",
+    "/profile",
+    "/history",
+    "/routes",
+    "/wiki",
+    "/conditions",
+  ];
+  let url: URL | null = null;
+  try {
+    url = next ? new URL(next, location.origin) : null;
+  } catch {
+    /* Invalid saved navigation falls back to the home screen. */
+  }
+  window.location.replace(
+    url && url.origin === location.origin && allowed.includes(url.pathname)
+      ? url.pathname + url.search
+      : "/home",
+  );
+}
 export function Onboarding({ botUrl }: { botUrl?: string }) {
   const [data, setData] = useState<OnboardingState | null>(null),
     [error, setError] = useState(""),
@@ -39,13 +65,13 @@ export function Onboarding({ botUrl }: { botUrl?: string }) {
           const start = params.get("start_param");
           if (start?.startsWith("ref_")) setReferral(start.slice(4));
           if (!result.onboarding_required) {
-            window.location.replace("/home");
+            enterClub();
             return;
           }
         }
         const state = await api<OnboardingState>("me/onboarding");
         if (state.active) {
-          window.location.replace("/home");
+          enterClub();
           return;
         }
         if (!cancelled) setData(state);
@@ -93,6 +119,7 @@ export function Onboarding({ botUrl }: { botUrl?: string }) {
   }
   return (
     <main className="onboarding-page">
+      {data && <NotificationActivity />}
       <header>
         <Brand />
         <span className="eyebrow">ВАШ ДОСТУП ВНУТРЬ RPM</span>
@@ -127,7 +154,7 @@ export function Onboarding({ botUrl }: { botUrl?: string }) {
                   referralCode: referral || undefined,
                   marketingConsent: f.get("marketing") === "on",
                 });
-                window.location.replace("/home");
+                enterClub();
               } catch (e) {
                 setError((e as Error).message);
                 if (
