@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { isAbsolute } from "node:path";
 
 type Environment = Record<string, string | undefined>;
 
@@ -74,7 +75,9 @@ export function productionConfigErrors(env: Environment): string[] {
       /(?:^|[_-])(test|dev)(?:$|[_-])/i.test(db.pathname.slice(1))
     )
       throw new Error();
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(db.hostname);
+    const local =
+      ["localhost", "127.0.0.1", "[::1]"].includes(db.hostname) ||
+      (env.DATABASE_PRIVATE_NETWORK === "1" && db.hostname === "rpm-club-db");
     if (
       !local &&
       !env.DATABASE_SSL_CA_BASE64 &&
@@ -97,25 +100,9 @@ export function productionConfigErrors(env: Environment): string[] {
       "DATABASE_URL must point to a non-test PostgreSQL database with password authentication",
     );
   }
-  try {
-    const url = new URL(env.SUPABASE_URL ?? "");
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      url.pathname !== "/"
-    )
-      throw new Error();
-  } catch {
-    errors.push("SUPABASE_URL must be an HTTPS origin");
-  }
-  for (const key of [
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "SUPABASE_PUBLISHABLE_KEY",
-  ] as const)
-    if (!env[key]?.trim())
-      errors.push(`${key} is required for configured Auth/Storage`);
+  if (!env.MEDIA_DIR || !isAbsolute(env.MEDIA_DIR))
+    errors.push(
+      "MEDIA_DIR must be an absolute path to persistent media storage",
+    );
   return errors;
 }

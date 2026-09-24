@@ -1,0 +1,6 @@
+# Shell entry points must stay executable on Linux after a Windows checkout.
+*.sh text eol=lf
+*.service text eol=lf
+*.timer text eol=lf
+# Migration checksums cover exact bytes; never rewrite their line endings.
+db/migrations/*.sql -text whitespace=cr-at-eol

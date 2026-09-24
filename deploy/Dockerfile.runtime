@@ -9,6 +9,7 @@ COPY --chown=node:node .next ./.next
 COPY --chown=node:node public ./public
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts ./scripts
+COPY --chown=node:node db ./db
 USER node
 EXPOSE 3001
 CMD ["sh", "-c", "node --import tsx scripts/check-production.ts && exec node node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port 3001"]

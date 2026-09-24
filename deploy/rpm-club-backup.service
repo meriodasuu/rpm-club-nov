@@ -1,0 +1,9 @@
+[Unit]
+Description=RPM Club PostgreSQL and media backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rpm-club/deploy/backup.sh
+UMask=0077

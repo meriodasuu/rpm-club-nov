@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { safeMaintenanceCode } from "../src/lib/jobs/diagnostics";
 import { contentSchema } from "../src/lib/club/contracts";
 import { referralProgramSchema } from "../src/lib/referrals/contracts";
 describe("admin UX contracts", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("never stores arbitrary maintenance exception messages or codes", () => {
     expect(
       safeMaintenanceCode({ code: "42P01", message: "secret://password" }),
@@ -15,6 +16,7 @@ describe("admin UX contracts", () => {
     );
   });
   it("accepts only generated local image paths and https images", () => {
+    vi.stubEnv("NODE_ENV", "production");
     const base = { kind: "wiki", title: "Фото" };
     expect(
       contentSchema.safeParse({

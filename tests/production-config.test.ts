@@ -12,9 +12,7 @@ const env = {
   TELEGRAM_WEBHOOK_SECRET: "w".repeat(40),
   TELEGRAM_BOT_TOKEN: "123456:synthetic-token",
   TELEGRAM_BOT_USERNAME: "rpmclub_bot",
-  SUPABASE_URL: "https://project.supabase.co",
-  SUPABASE_SERVICE_ROLE_KEY: "synthetic-service",
-  SUPABASE_PUBLISHABLE_KEY: "synthetic-public",
+  MEDIA_DIR: "/var/lib/rpm-club/media",
 };
 describe("VPS startup configuration", () => {
   it("accepts configured production with isolated password-protected local Postgres", () => {
@@ -28,21 +26,37 @@ describe("VPS startup configuration", () => {
       }),
     ).toEqual([]);
   });
-  it("rejects preview modes, non-HTTPS addresses and missing provider credentials", () => {
+  it("rejects preview modes, non-HTTPS addresses and missing media storage", () => {
     const errors = productionConfigErrors({
       ...env,
       LOCAL_PREVIEW: "1",
       APP_URL: "http://localhost:3001",
       TELEGRAM_BOT_TOKEN: "",
-      SUPABASE_SERVICE_ROLE_KEY: "",
+      MEDIA_DIR: "",
     });
     for (const key of [
       "LOCAL_PREVIEW",
       "APP_URL",
       "TELEGRAM_BOT_TOKEN",
-      "SUPABASE_SERVICE_ROLE_KEY",
+      "MEDIA_DIR",
     ])
       expect(errors.some((e) => e.includes(key))).toBe(true);
+  });
+  it("allows plaintext only for the explicitly isolated Docker database", () => {
+    expect(
+      productionConfigErrors({
+        ...env,
+        DATABASE_URL: "postgresql://rpm:synthetic@rpm-club-db/rpm_club",
+        DATABASE_PRIVATE_NETWORK: "1",
+      }),
+    ).toEqual([]);
+    expect(
+      productionConfigErrors({
+        ...env,
+        DATABASE_URL: "postgresql://rpm:synthetic@remote.example.com/rpm_club",
+        DATABASE_PRIVATE_NETWORK: "1",
+      }).length,
+    ).toBeGreaterThan(0);
   });
   it("rejects test/trust databases and unverified remote TLS without exposing secrets", () => {
     for (const DATABASE_URL of [

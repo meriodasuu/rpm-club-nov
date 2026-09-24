@@ -21,13 +21,7 @@ export const contentSchema = z
     summary: z.string().trim().max(500).default(""),
     body: z.string().trim().max(12000).default(""),
     imageUrl: z
-      .union([
-        https,
-        z
-          .string()
-          .regex(/^\/api\/media\/[a-f0-9-]{36}\.webp$/)
-          .refine(() => process.env.NODE_ENV !== "production"),
-      ])
+      .union([https, z.string().regex(/^\/api\/media\/[a-f0-9-]{36}\.webp$/)])
       .default(""),
     linkUrl: https.default(""),
     category: z

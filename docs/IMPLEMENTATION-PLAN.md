@@ -17,7 +17,7 @@
 
 ## Task 1 — Основа и экономика
 
-Files: `src/lib/db/*`, `src/lib/loyalty/*`, `supabase/migrations/*`, `scripts/migrate.ts`, `scripts/seed.ts`, `tests/loyalty.test.ts`, `tests/loyalty.integration.test.ts`.
+Files: `src/lib/db/*`, `src/lib/loyalty/*`, `db/migrations/*`, `scripts/migrate.ts`, `scripts/seed.ts`, `tests/loyalty.test.ts`, `tests/loyalty.integration.test.ts`.
 
 - [x] Создать схему, constraints, индексы и миграционный runner.
 - [x] Сначала проверить граничные tiers, 287000+35000=BLACK/+1400, paid, duplicate и гонки списаний тестами.

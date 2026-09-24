@@ -1,4 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { query, transaction } from "@/lib/db";
@@ -334,116 +333,11 @@ export async function authRoute(
   }
   if (request.method === "POST" && path === "auth/staff/login") {
     requireOrigin(request);
-    const input = await body(
-      request,
-      z.object({
-        email: z.string().email(),
-        password: z.string().min(1).max(300),
-        factorId: z.string().uuid().optional(),
-        otp: z
-          .string()
-          .regex(/^\d{6}$/)
-          .optional(),
-      }),
+    throw new HttpError(
+      410,
+      "TELEGRAM_LOGIN_REQUIRED",
+      "Откройте /admin в Telegram-боте RPM Club и подтвердите вход кодом двухфакторной защиты",
     );
-    await rateLimit("staff-login:" + hashToken(input.email.toLowerCase()), 10);
-    const url = process.env.SUPABASE_URL,
-      key = process.env.SUPABASE_PUBLISHABLE_KEY;
-    if (!url || !key)
-      throw new HttpError(
-        503,
-        "AUTH_NOT_CONFIGURED",
-        "Вход сотрудников ещё не настроен",
-      );
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: {
-        fetch: (url, init) =>
-          fetch(url, { ...init, signal: AbortSignal.timeout(15000) }),
-      },
-    });
-    const signed = await supabase.auth.signInWithPassword({
-      email: input.email,
-      password: input.password,
-    });
-    if (signed.error || !signed.data.user)
-      throw new HttpError(401, "LOGIN_FAILED", "Неверная почта или пароль");
-    const [staff] = await query<{ id: string; role: string }>(
-      "SELECT id,role FROM admin_memberships WHERE auth_user_id=$1 AND active=true",
-      [signed.data.user.id],
-    );
-    if (!staff)
-      throw new HttpError(
-        403,
-        "STAFF_FORBIDDEN",
-        "Доступ сотрудника не назначен",
-      );
-    if (staff.role === "admin") {
-      const factors = await supabase.auth.mfa.listFactors();
-      if (factors.error)
-        throw new HttpError(
-          503,
-          "MFA_UNAVAILABLE",
-          "Не удалось проверить двухфакторную защиту",
-        );
-      let factorId = factors.data?.totp.find(
-        (f) => f.status === "verified",
-      )?.id;
-      if (
-        !factorId &&
-        input.factorId &&
-        factors.data?.all.some(
-          (f) => f.id === input.factorId && f.factor_type === "totp",
-        )
-      )
-        factorId = input.factorId;
-      if (!factorId) {
-        const enrolled = await supabase.auth.mfa.enroll({
-          factorType: "totp",
-          friendlyName: "RPM Club " + randomUUID().slice(0, 8),
-        });
-        if (enrolled.error)
-          throw new HttpError(
-            409,
-            "MFA_ENROLL_FAILED",
-            "Не удалось начать настройку. Обратитесь к администратору учётных записей.",
-          );
-        return json({
-          mfa_required: true,
-          enrollment: {
-            factorId: enrolled.data.id,
-            qrCode: enrolled.data.totp.qr_code,
-          },
-        });
-      }
-      if (!input.otp) return json({ mfa_required: true });
-      const verification = await supabase.auth.mfa.challengeAndVerify({
-        factorId,
-        code: input.otp,
-      });
-      if (verification.error)
-        throw new HttpError(401, "MFA_FAILED", "Неверный код подтверждения");
-    }
-    const token = randomToken();
-    await transaction(async (tx) => {
-      const [current] = await tx.query<{ role: string; active: boolean }>(
-        "SELECT role,active FROM admin_memberships WHERE id=$1 FOR UPDATE",
-        [staff.id],
-      );
-      if (!current?.active || current.role !== staff.role)
-        throw new HttpError(
-          409,
-          "STAFF_CHANGED",
-          "Права изменились. Выполните вход заново.",
-        );
-      await tx.query(
-        "INSERT INTO staff_sessions(token_hash,membership_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
-        [hashToken(token), staff.id],
-      );
-    });
-    return json({ authenticated: true }, 200, {
-      "Set-Cookie": sessionCookie(STAFF_COOKIE, token, 3600),
-    });
   }
   if (request.method === "POST" && path === "auth/local") {
     requireOrigin(request);

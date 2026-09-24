@@ -1,34 +1,80 @@
 name: rpm-club
+x-runtime: &runtime
+  image: ${RPM_CLUB_IMAGE:?Set the verified RPM Club image tag}
+  restart: unless-stopped
+  init: true
+  env_file:
+    - path: /etc/rpm-club.env
+      format: raw
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 192
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: "3" }
 services:
-  app:
-    image: ${RPM_CLUB_IMAGE:?Set the verified RPM Club image tag}
+  db:
+    image: postgres:17-alpine
     restart: unless-stopped
-    init: true
     env_file:
-      - path: /etc/rpm-club.env
+      - path: /etc/rpm-club-db.env
         format: raw
+    command:
+      [
+        postgres,
+        -c,
+        shared_buffers=32MB,
+        -c,
+        work_mem=2MB,
+        -c,
+        maintenance_work_mem=32MB,
+        -c,
+        max_connections=40,
+      ]
+    volumes:
+      - /opt/rpm-club/data/postgres:/var/lib/postgresql/data
+    networks:
+      backend:
+        aliases: [rpm-club-db]
+    mem_limit: 256m
+    memswap_limit: 384m
+    cpus: 0.75
+    pids_limit: 96
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d rpm_club"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+  app:
+    <<: *runtime
     environment:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
       VERCEL: "0"
-      NODE_OPTIONS: --max-old-space-size=512
+      NODE_OPTIONS: --max-old-space-size=384
       NEXT_TELEMETRY_DISABLED: "1"
-    ports:
-      - "127.0.0.1:3001:3001"
+      MEDIA_DIR: /data/media
+    ports: ["127.0.0.1:3001:3001"]
     networks:
       web:
         aliases: [rpm-club]
-    mem_limit: 768m
-    mem_reservation: 256m
-    memswap_limit: 1024m
+      backend:
+    volumes: [/opt/rpm-club/data/media:/data/media]
+    depends_on:
+      db: { condition: service_healthy }
+    mem_limit: 512m
+    mem_reservation: 192m
+    memswap_limit: 768m
     cpus: 1.0
-    pids_limit: 192
-    read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
       - /app/.next/cache:size=64m,uid=1000,gid=1000
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
     stop_grace_period: 30s
     healthcheck:
       test:
@@ -42,12 +88,44 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
+  worker:
+    <<: *runtime
+    profiles: [worker]
+    command:
+      [
+        sh,
+        -c,
+        "node --import tsx scripts/check-production.ts && exec node --import tsx scripts/worker.ts",
+      ]
+    environment:
+      NODE_ENV: production
+      LOCAL_PREVIEW: "0"
+      VERCEL: "0"
+      NODE_OPTIONS: --max-old-space-size=160
+    networks: [backend, egress]
+    depends_on:
+      db: { condition: service_healthy }
+    mem_limit: 224m
+    memswap_limit: 320m
+    cpus: 0.5
+    tmpfs: [/tmp:size=32m, mode=1777]
+    stop_grace_period: 120s
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-worker-heartbeat','utf8'))<180000?0:1)}catch{process.exit(1)}",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
 networks:
   web:
     external: true
     name: rpm-rent_web
+  backend:
+    internal: true
+  egress: {}

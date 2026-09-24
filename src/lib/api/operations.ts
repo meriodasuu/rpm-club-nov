@@ -1,8 +1,6 @@
 import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
-import path from "node:path";
+import { saveMedia, loadMedia } from "@/lib/media";
 import sharp from "sharp";
 import { query, transaction } from "@/lib/db";
 import { requireStaff, secretMatches, rateLimit } from "@/lib/auth/session";
@@ -321,16 +319,11 @@ export async function operationsRoute(
         input.image_url,
       )
     ) {
-      const image = new URL(input.image_url);
-      if (
-        image.origin !== process.env.SUPABASE_URL ||
-        !image.pathname.startsWith("/storage/v1/object/public/")
-      )
-        throw new HttpError(
-          422,
-          "IMAGE_URL",
-          "Загрузите изображение через редактор",
-        );
+      throw new HttpError(
+        422,
+        "IMAGE_URL",
+        "Загрузите изображение через редактор",
+      );
     }
     const id = offer[1] ?? randomUUID();
     await transaction(async (tx) => {
@@ -526,44 +519,19 @@ export async function operationsRoute(
       );
     }
     const name = randomUUID() + ".webp";
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      const storage = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY,
-      ).storage.from(process.env.SUPABASE_STORAGE_BUCKET ?? "rpm-offers");
-      const uploaded = await storage.upload(name, output, {
-        contentType: "image/webp",
-      });
-      if (uploaded.error)
-        throw new HttpError(
-          503,
-          "UPLOAD_FAILED",
-          "Не удалось сохранить изображение",
-        );
-      return json({ url: storage.getPublicUrl(name).data.publicUrl });
-    }
-    if (process.env.NODE_ENV === "production")
-      throw new HttpError(
-        503,
-        "STORAGE_UNAVAILABLE",
-        "Хранилище изображений не настроено",
-      );
-    await mkdir(".local/media", { recursive: true });
-    await writeFile(path.join(".local/media", name), output);
+    await saveMedia(name, output);
     return json({ url: "/api/media/" + name });
   }
   if (/^media\/[a-f0-9-]{36}\.webp$/.test(key) && request.method === "GET") {
-    try {
-      const data = await readFile(path.join(".local", key));
-      return new Response(data, {
-        headers: {
-          "Content-Type": "image/webp",
-          "Cache-Control": "public, max-age=86400",
-        },
-      });
-    } catch {
-      return notFound();
-    }
+    const data = await loadMedia(key.slice("media/".length));
+    if (!data) return notFound();
+    return new Response(data, {
+      headers: {
+        "Content-Type": "image/webp",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
   }
   if (key.startsWith("integrations/rentals") && request.method === "POST") {
     if (

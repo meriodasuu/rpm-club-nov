@@ -2,7 +2,7 @@
 
 Implemented transactional PostgreSQL loyalty services, exact bigint calculations, new-tier cashback, paid qualification, historical import, idempotency, FEFO lots, expiry, reversal debt, adjustments, cumulative redemption limits, referral holds/reversals, immutable program versions, audit/outbox and consistent account snapshots. Contract and exact shared column names: `docs/CORE-CONTRACT.md`; migration SQL is authoritative.
 
-Owned files: `src/lib/db/index.ts`, `src/lib/loyalty/{index,rules,types}.ts`, `supabase/migrations/{001_core,002_ledger_guards}.sql`, `scripts/{migrate,seed}.ts`, `tests/loyalty{,.integration}.test.ts`, and the two `docs/CORE-*.md` files. No commits, deployments, external sends, or changes to root/UI modules.
+Owned files: `src/lib/db/index.ts`, `src/lib/loyalty/{index,rules,types}.ts`, `db/migrations/{001_core,002_ledger_guards}.sql`, `scripts/{migrate,seed}.ts`, `tests/loyalty{,.integration}.test.ts`, and the two `docs/CORE-*.md` files. No commits, deployments, external sends, or changes to root/UI modules.
 
 ## Actual verification
 

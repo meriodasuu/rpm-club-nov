@@ -4,9 +4,9 @@
 
 Локально: `npm ci`, `npm run setup:local`, `npm run dev`. Origin и APP_URL должны совпадать: `http://127.0.0.1:3001`. Не запускать seed против реальных данных.
 
-Production: отдельная PostgreSQL/Supabase БД и ключи, `NODE_ENV=production`, `LOCAL_PREVIEW=0`, публичный HTTPS APP_URL. Установить зависимости, применить миграции, выполнить `npm run build`, запустить `npm run start` за HTTPS reverse proxy. Для контейнерного хостинга использовать `next start --hostname 0.0.0.0 --port 3001` внутри закрытой сети. Нужен Node runtime, постоянное соединение с PostgreSQL и scheduler. При serverless проверить лимиты соединений и длительности worker. Состояние облачной публикации — в VERCEL-DEPLOYMENT.md.
+Production: отдельная PostgreSQL 17 на VPS, NODE_ENV=production, LOCAL_PREVIEW=0, публичный HTTPS APP_URL. Приложение, БД, локальное медиа и worker разворачиваются по [инструкции VPS](../deploy/VPS-RELEASE.md). Внешние Auth/Storage не используются.
 
-DATABASE_URL доступен только серверу. Таблицы защищены RLS, ledger/audit — append-only триггерами. Браузер не получает DB URL или service-role key. Runtime выполняет SQL через серверную БД-роль; не предоставлять anon/authenticated произвольные grants. Миграции выполняются административной ролью до новой версии приложения. Изменение checksum применённой миграции останавливает runner.
+DATABASE_URL доступен только серверу. Таблицы защищены RLS, ledger/audit — append-only триггерами. Браузер не получает DB URL или серверные секреты. Runtime выполняет SQL через серверную БД-роль; не предоставлять anon/authenticated произвольные grants. Миграции выполняются административной ролью до новой версии приложения. Изменение checksum применённой миграции останавливает runner.
 
 ## Credentials и подключения
 
@@ -14,9 +14,9 @@ DATABASE_URL доступен только серверу. Таблицы защ
 
 **Telegram:** создать/выбрать бота, настроить Main Mini App/menu button с APP_URL, webhook `/api/telegram/webhook` и secret_token=TELEGRAM_WEBHOOK_SECRET. Контакт принимается только из private chat, если contact.user_id совпадает с sender и есть непросроченный запрос. Приглашение: `startapp=ref_<code>`. Проверить вход, свой/чужой контакт, отказ/повтор контакта и сообщения на тестовом пользователе.
 
-**Supabase:** URL, publishable и service-role key; создать staff-account в Auth. В чистой production БД первый admin назначается `npm run staff:bootstrap -- email@example.com`; скрипт отказывается, если memberships уже есть. `/admin/login` показывает QR TOTP; сессия не выдаётся до проверки кода. Остальных сотрудников назначать через раздел «Сотрудники» по существующему Auth User ID. Смена роли/активности отзывает старые сессии; promotion требует нового MFA-входа. Восстановление пароля/MFA выполняет владелец Auth-проекта после внешней проверки личности.
+**Администраторы:** первый сотрудник в пустой базе назначается `npm run staff:bootstrap -- TELEGRAM_NUMERIC_ID` после регистрации в боте. Скрипт отказывается, если сотрудники уже есть. Вход — `/admin` в боте и TOTP; сессия не выдаётся до проверки кода. Остальных сотрудников назначать через раздел «Сотрудники». При переносе сохранять ENCRYPTION_KEY и идентификаторы memberships: ими защищены существующие настройки MFA.
 
-**Storage:** отдельный public bucket rpm-offers только для изображений Drops. Сервер проверяет RBAC, декодируемый формат/размер, преобразует в WebP. Импорт, PII и сертификаты туда не помещать. Без Storage development использует `.local/media`; production отвечает ошибкой.
+**Изображения:** постоянный абсолютный MEDIA_DIR, в Compose `/data/media`, на хосте `/opt/rpm-club/data/media`. Сервер проверяет роль, размер и формат, преобразует в WebP. Изображения доступны по `/api/media/<uuid>.webp`. Не хранить там импорт, PII или секреты. Production без MEDIA_DIR не запускается; development использует `.local/media`.
 
 ## Worker и диагностика
 
@@ -38,10 +38,10 @@ Preview не создаёт клиентов/экономику, показыв�
 
 ## Backup, restore, rollback
 
-До production включить ежедневные backups и проверить retention/тариф провайдера. Цели RPO ≤24ч, RTO ≤4ч ещё не подтверждены восстановлением.
+Ежедневный backup БД и изображений выполняет systemd timer rpm-club-backup. Скрипт deploy/backup.sh хранит копии 14 суток. Внешнее защищённое хранилище подключается отдельно. Цели RPO ≤24ч, RTO ≤4ч ещё не подтверждены восстановлением.
 
 Self-managed пример в защищённом shell: `pg_dump --format=custom --file=rpm-club.dump "$DATABASE_URL"`. Dump и секреты хранить отдельно, не в Git. Восстанавливать `pg_restore --no-owner --dbname="$RESTORE_DATABASE_URL" rpm-club.dump` только в новую изолированную БД. На restore-среде отключить provider credentials/scheduler. Проверить checksum схемы, reconcileAccounts, счета/проводки, leases и истории. Восстановленная очередь не должна рассылать сообщения реальным пользователям.
 
 Rollback приложения: предыдущий build, совместимый с текущей схемой. Миграции не переписывать; исправления новым SQL. Несовместимая схема требует отдельного плана. Экономические изменения отменять компенсирующими командами; старый dump не накатывать поверх новых аренд.
 
-Перед публикацией утвердить решения D01–D09/юридические тексты и проверить реальную выгрузку, Telegram, MFA, нагрузку, backup/restore и полный A40. Актуальные облачные настройки описаны в VERCEL-DEPLOYMENT.md.
+Перед публикацией утвердить решения D01–D09/юридические тексты и проверить реальную выгрузку, Telegram, MFA, нагрузку, backup/restore и полный A40. Актуальная схема развёртывания описана в deploy/VPS-RELEASE.md; VERCEL-DEPLOYMENT.md — история прежней установки.

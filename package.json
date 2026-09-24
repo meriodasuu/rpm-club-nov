@@ -26,8 +26,6 @@
     "node": "22.x"
   },
   "dependencies": {
-    "@supabase/ssr": "0.12.7",
-    "@supabase/supabase-js": "2.116.0",
     "clsx": "2.1.1",
     "exceljs": "4.4.0",
     "jose": "6.2.12",
