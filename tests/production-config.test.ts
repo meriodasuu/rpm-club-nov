@@ -20,6 +20,14 @@ describe("VPS startup configuration", () => {
   it("accepts configured production with isolated password-protected local Postgres", () => {
     expect(productionConfigErrors(env)).toEqual([]);
   });
+  it("preserves valid existing unpadded base64 encryption keys", () => {
+    expect(
+      productionConfigErrors({
+        ...env,
+        ENCRYPTION_KEY: env.ENCRYPTION_KEY.replace(/=+$/, ""),
+      }),
+    ).toEqual([]);
+  });
   it("rejects preview modes, non-HTTPS addresses and missing provider credentials", () => {
     const errors = productionConfigErrors({
       ...env,

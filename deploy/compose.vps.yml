@@ -1,0 +1,53 @@
+name: rpm-club
+services:
+  app:
+    image: ${RPM_CLUB_IMAGE:?Set the verified RPM Club image tag}
+    restart: unless-stopped
+    init: true
+    env_file:
+      - path: /etc/rpm-club.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      LOCAL_PREVIEW: "0"
+      VERCEL: "0"
+      NODE_OPTIONS: --max-old-space-size=512
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "127.0.0.1:3001:3001"
+    networks:
+      web:
+        aliases: [rpm-club]
+    mem_limit: 768m
+    mem_reservation: 256m
+    memswap_limit: 1024m
+    cpus: 1.0
+    pids_limit: 192
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /app/.next/cache:size=64m,uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3001/api/ready',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  web:
+    external: true
+    name: rpm-rent_web

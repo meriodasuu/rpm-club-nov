@@ -1,0 +1,13 @@
+# Append to the existing Caddyfile after DNS points to this server.
+club.rpmrent.ru {
+  encode zstd gzip
+  request_body {
+    max_size 12MiB
+  }
+  reverse_proxy rpm-club:3001 {
+    transport http {
+      dial_timeout 5s
+      response_header_timeout 60s
+    }
+  }
+}

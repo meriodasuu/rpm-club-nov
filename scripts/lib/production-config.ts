@@ -39,7 +39,7 @@ export function productionConfigErrors(env: Environment): string[] {
   if (
     !/^[0-9a-f]{64}$/i.test(encryption) &&
     !(
-      /^[A-Za-z0-9+/]{43}=$/.test(encryption) &&
+      /^[A-Za-z0-9+/]{43}=?$/.test(encryption) &&
       Buffer.from(encryption, "base64").length === 32
     )
   )
