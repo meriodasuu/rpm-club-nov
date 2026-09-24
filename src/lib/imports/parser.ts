@@ -19,10 +19,15 @@ export function parseCsv(
     {
       header: true,
       skipEmptyLines: "greedy",
+      // Stop before a compact CSV can allocate millions of row objects on the
+      // application server. One extra row lets us reject an oversized import.
+      preview: 10001,
       delimiter,
       transformHeader: (h) => h.trim(),
     },
   );
+  if (result.data.length > 10000)
+    throw new HttpError(422, "ROW_LIMIT", "Максимум 10 000 строк");
   // PapaParse silently renames duplicate headers; money/identity columns must
   // remain unambiguous, just as in the XLSX reader below.
   if (Object.keys(result.meta.renamedHeaders ?? {}).length)
@@ -197,11 +202,19 @@ export async function parseFile(
       "FILE_TOO_LARGE",
       "Максимальный размер файла — 10 МБ",
     );
-  if (/\.csv$/i.test(filename))
-    return parseCsv(
-      new TextDecoder("utf-8", { fatal: true }).decode(buffer),
-      profile.delimiter ?? ",",
-    );
+  if (/\.csv$/i.test(filename)) {
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      throw new HttpError(
+        422,
+        "CSV_ENCODING",
+        "Сохраните CSV в кодировке UTF-8",
+      );
+    }
+    return parseCsv(text, profile.delimiter ?? ",");
+  }
   if (!/\.xlsx$/i.test(filename))
     throw new HttpError(422, "FILE_TYPE", "Выберите CSV или XLSX");
   checkZipBudget(buffer);

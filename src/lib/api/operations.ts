@@ -503,15 +503,28 @@ export async function operationsRoute(
         "Выберите JPEG, PNG или WebP до 5 МБ",
       );
     const buffer = Buffer.from(await file.arrayBuffer());
-    const metadata = await sharp(buffer, {
-      limitInputPixels: 25000000,
-    }).metadata();
-    if (!["jpeg", "png", "webp"].includes(metadata.format ?? ""))
-      throw new HttpError(422, "IMAGE_TYPE", "Поддерживаются JPEG, PNG и WebP");
-    const output = await sharp(buffer)
-      .resize(1600, 1000, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 85 })
-      .toBuffer();
+    let output: Buffer;
+    try {
+      const image = sharp(buffer, { limitInputPixels: 25000000 });
+      const metadata = await image.metadata();
+      if (!["jpeg", "png", "webp"].includes(metadata.format ?? ""))
+        throw new HttpError(
+          422,
+          "IMAGE_TYPE",
+          "Поддерживаются JPEG, PNG и WebP",
+        );
+      output = await image
+        .resize(1600, 1000, { fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 85 })
+        .toBuffer();
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(
+        422,
+        "IMAGE_INVALID",
+        "Не удалось прочитать изображение. Выберите исправный JPEG, PNG или WebP размером до 25 мегапикселей.",
+      );
+    }
     const name = randomUUID() + ".webp";
     if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
       const storage = createClient(

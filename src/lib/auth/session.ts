@@ -45,7 +45,7 @@ export async function requireSession(
   if (!token)
     throw new HttpError(401, "AUTH_REQUIRED", "Откройте RPM Club из Telegram");
   const [session] = await query<ClientSession>(
-    `SELECT s.*,u.status user_status FROM miniapp_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND s.revoked_at IS NULL`,
+    `SELECT s.*,u.status user_status FROM miniapp_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND s.revoked_at IS NULL AND (s.user_id IS NULL OR u.telegram_id=s.telegram_id)`,
     [hashToken(token)],
   );
   if (!session)

@@ -2,7 +2,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { closePool, query } from "../src/lib/db";
 import { operationsRoute } from "../src/lib/api/operations";
-import { hashToken, randomToken } from "../src/lib/auth/session";
+import {
+  hashToken,
+  randomToken,
+  requireSession,
+} from "../src/lib/auth/session";
 import { handle } from "../src/lib/http";
 
 const suite = process.env.DATABASE_URL?.includes("rpm_club_test")
@@ -175,5 +179,27 @@ suite("staff identity cannot be reassigned through member editing", () => {
       (await query("SELECT telegram_id FROM users WHERE id=$1", [user.id]))[0]
         .telegram_id,
     ).toBe(user.telegram_id);
+  });
+
+  it("rejects an old Telegram session inserted after identity revocation", async () => {
+    const admin = await staff(),
+      user = await member(),
+      token = randomToken();
+    // auth/telegram may have read the old identity before the edit's revocation,
+    // then finish inserting its session after the edit commits.
+    expect((await edit(user.id, admin.cookie, telegramId())).status).toBe(200);
+    await query(
+      "INSERT INTO miniapp_sessions(user_id,telegram_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",
+      [user.id, user.telegram_id, hashToken(token)],
+    );
+    const request = new Request(origin + "/api/me", {
+      headers: { cookie: "rpm_session=" + token },
+    });
+    await expect(requireSession(request)).rejects.toMatchObject({
+      code: "SESSION_EXPIRED",
+    });
+    await expect(requireSession(request, false)).rejects.toMatchObject({
+      code: "SESSION_EXPIRED",
+    });
   });
 });

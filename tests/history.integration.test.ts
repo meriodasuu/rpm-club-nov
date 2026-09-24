@@ -12,12 +12,16 @@ const suite = process.env.DATABASE_URL?.includes("rpm_club_test")
 const base = "http://127.0.0.1:3001";
 async function member() {
   const token = randomToken();
+  const telegramId = BigInt(
+    "0x" + randomUUID().replaceAll("-", "").slice(0, 11),
+  ).toString();
   const [user] = await query<{ id: string }>(
-    "INSERT INTO users(name,status) VALUES('History QA','active') RETURNING id",
+    "INSERT INTO users(name,status,telegram_id) VALUES('History QA','active',$1) RETURNING id",
+    [telegramId],
   );
   await query(
-    "INSERT INTO miniapp_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
-    [hashToken(token), user.id],
+    "INSERT INTO miniapp_sessions(token_hash,user_id,telegram_id,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",
+    [hashToken(token), user.id, telegramId],
   );
   return { id: user.id, cookie: "rpm_session=" + token };
 }

@@ -34,11 +34,24 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { ...options?.headers },
     cache: "no-store",
   });
-  const data = await response.json();
+  const data: unknown = await response.json().catch(() => undefined);
+  const errorBody = data && typeof data === "object" ? data : {};
   if (!response.ok)
     throw new ApiError(
-      data.code ?? "ERROR",
-      data.message ?? "Не удалось выполнить запрос",
+      "code" in errorBody && typeof errorBody.code === "string"
+        ? errorBody.code
+        : "HTTP_ERROR",
+      "message" in errorBody && typeof errorBody.message === "string"
+        ? errorBody.message
+        : response.status === 413
+          ? "Файл или запрос слишком большой."
+          : "Сервис временно недоступен. Повторите попытку позже.",
+      response.status,
+    );
+  if (data === undefined)
+    throw new ApiError(
+      "INVALID_RESPONSE",
+      "Не удалось прочитать ответ сервиса. Повторите попытку позже.",
       response.status,
     );
   return data as T;

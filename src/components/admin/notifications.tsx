@@ -10,7 +10,7 @@ import {
 } from "@/components/shared";
 import {
   notificationNames,
-  blockedNotifications,
+  notificationUnavailableReason,
   renderNotification,
   variables,
   type NotificationRule,
@@ -21,19 +21,20 @@ import { DataTable, type Row } from "./tables";
 import { date } from "@/lib/ui";
 export function LifecycleNotifications() {
   const r = useResource<{
+    rewardMode: "cashback" | "discount";
     rules: NotificationRule[];
     stats: Row[];
     logs: Row[];
     limits: { service: number; marketing: number };
   }>("admin/notifications");
   const [error, setError] = useState("");
+  const [savingLimits, setSavingLimits] = useState(false);
   return (
     <section>
       <h2>Сценарии участника</h2>
       <p className="small-note">
-        Оплата на месте. Тексты учитывают скидки; старые Bonus показываются
-        только при наличии. Новые правила выключены до настройки. День рождения
-        и годовщина — поздравления, без автоматического начисления подарка.
+        Оплата на месте. Новые правила выключены до настройки. День рождения и
+        годовщина — поздравления, без автоматического начисления подарка.
       </p>
       {r.error ? (
         <Failure error={r.error} retry={r.refresh} />
@@ -56,7 +57,10 @@ export function LifecycleNotifications() {
                 >
                   <select
                     value={r.data!.limits[key]}
+                    disabled={savingLimits}
                     onChange={async (e) => {
+                      setSavingLimits(true);
+                      setError("");
                       try {
                         await command("admin/notification-limits", {
                           ...r.data!.limits,
@@ -65,6 +69,8 @@ export function LifecycleNotifications() {
                         await r.refresh();
                       } catch (e) {
                         setError((e as Error).message);
+                      } finally {
+                        setSavingLimits(false);
                       }
                     }}
                   >
@@ -80,6 +86,7 @@ export function LifecycleNotifications() {
             <NotificationEditor
               key={rule.id + ":" + rule.version}
               rule={rule}
+              rewardMode={r.data!.rewardMode}
               onDone={r.refresh}
             />
           ))}
@@ -179,9 +186,11 @@ export function LifecycleNotifications() {
 }
 function NotificationEditor({
   rule,
+  rewardMode,
   onDone,
 }: {
   rule: NotificationRule;
+  rewardMode: "cashback" | "discount";
   onDone: () => Promise<void>;
 }) {
   const [config, setConfig] = useState<NotificationConfig>({
@@ -198,7 +207,7 @@ function NotificationEditor({
     guard.markDirty();
     setConfig((c) => ({ ...c, [key]: value }));
   };
-  const blocked = blockedNotifications[rule.id];
+  const blocked = notificationUnavailableReason(rule.id, rewardMode);
   return (
     <details className="panel">
       <summary className="panel-header">
@@ -257,11 +266,15 @@ function NotificationEditor({
             <p className="small-note">
               Переменные:{" "}
               {variables
-                .filter((v) => v !== "rides_to_next_level")
+                .filter(
+                  (v) =>
+                    v !== "rides_to_next_level" &&
+                    (rewardMode !== "discount" || !v.startsWith("bonus_")),
+                )
                 .map((v) => "{" + v + "}")
                 .join(", ")}
-              . Прогресс считается по обороту. Не обещайте новые Bonus или
-              подарок без фактического начисления.
+              . Прогресс считается по сумме аренд. Подарки выдаются менеджером
+              по настроенным условиям программы.
             </p>
             <div className="form-grid">
               <Field label="Кнопка">
@@ -286,7 +299,7 @@ function NotificationEditor({
                     "/home": "Главная",
                     "/club": "Карта и привилегии",
                     "/rent": "Заявка на аренду",
-                    "/profile": "Профиль и Bonus",
+                    "/profile": "Профиль",
                     "/history": "История",
                   }).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -448,7 +461,7 @@ function NotificationEditor({
             <p className="small-note">
               Сохранение отменяет ожидающие сообщения прежней редакции этого
               сценария. Включение не отправляет старые события; проверки текущей
-              неактивности и оставшихся Bonus начнутся после включения.
+              неактивности начнутся после включения.
             </p>
             <FormMessage error={error} />
             <button className="button" disabled={busy}>

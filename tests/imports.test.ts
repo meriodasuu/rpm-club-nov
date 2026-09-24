@@ -46,6 +46,17 @@ describe("Import boundary", () => {
       parseCsv('external_rental_id,customer_name\nr1,"Роман, клиент"', ",")[0]
         .customer_name,
     ).toBe("Роман, клиент"));
+  it("rejects compact CSV files exceeding the row budget during parsing", () => {
+    expect(() => parseCsv("rental_id\n" + "r1\n".repeat(10001))).toThrow(
+      "Максимум 10 000 строк",
+    );
+    expect(parseCsv("rental_id\n" + "r1\n".repeat(10000))).toHaveLength(10000);
+  });
+  it("returns a validation error for unsupported CSV encoding", async () => {
+    await expect(
+      parseFile(Buffer.from([0xff, 0xfe, 0x41]), "rentals.csv", {}),
+    ).rejects.toMatchObject({ status: 422, code: "CSV_ENCODING" });
+  });
   it.each(["rental_amount,rental_amount", " rental_amount ,rental_amount"])(
     "rejects ambiguous CSV money headers: %s",
     (headers) => {

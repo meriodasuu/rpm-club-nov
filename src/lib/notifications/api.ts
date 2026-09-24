@@ -3,8 +3,13 @@ import { query, transaction } from "@/lib/db";
 import { body, HttpError, json, requireOrigin } from "@/lib/http";
 import { requireSession, requireStaff, rateLimit } from "@/lib/auth/session";
 import { notificationRules, recordActivity } from "./engine";
-import { notificationRuleSchema, type NotificationRule } from "./contracts";
+import {
+  notificationRuleSchema,
+  notificationUnavailableReason,
+  type NotificationRule,
+} from "./contracts";
 import { moscowDate, rentalDays } from "@/lib/club/contracts";
+import { getProgram } from "@/lib/loyalty";
 export async function notificationsRoute(
   request: Request,
   path: string,
@@ -24,6 +29,7 @@ export async function notificationsRoute(
     await rateLimit("notifications-admin:" + staff.id, 60);
     if (path === "admin/notifications" && request.method === "GET") {
       return json({
+        rewardMode: (await getProgram()).rewardMode,
         rules: await notificationRules(),
         limits: (
           await query<{ value: unknown }>(
@@ -61,6 +67,12 @@ export async function notificationsRoute(
       return json({ ok: true });
     }
     const input = await body(request, notificationRuleSchema);
+    const unavailable = notificationUnavailableReason(
+      input.id,
+      (await getProgram()).rewardMode,
+    );
+    if (input.enabled && unavailable)
+      throw new HttpError(422, "NOTIFICATION_UNAVAILABLE", unavailable);
     await notificationRules();
     await transaction(async (tx) => {
       const [old] = await tx.query<NotificationRule>(

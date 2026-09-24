@@ -14,6 +14,7 @@ import {
   command,
 } from "@/components/shared";
 import type { AccountSnapshot } from "@/lib/loyalty/types";
+import { useUnsavedChanges } from "./unsaved";
 export function IdentityPage({ id }: { id: string }) {
   return (
     <AdminShell section="customers">
@@ -36,6 +37,7 @@ function IdentityForm({ id }: { id: string }) {
     router = useRouter(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const guard = useUnsavedChanges();
   if (r.error) return <Failure error={r.error} />;
   if (!r.data) return <Loading />;
   const a = r.data.snapshot;
@@ -47,6 +49,7 @@ function IdentityForm({ id }: { id: string }) {
       <PageHeading title="Данные участника" subtitle={a.user.name} />
       <form
         className="panel"
+        onChange={guard.markDirty}
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
@@ -61,6 +64,7 @@ function IdentityForm({ id }: { id: string }) {
               expectedVersion: a.account_version,
               reason: f.get("reason"),
             });
+            guard.markSaved();
             router.replace("/admin/customers/" + id);
           } catch (e) {
             setError((e as Error).message);
@@ -69,7 +73,7 @@ function IdentityForm({ id }: { id: string }) {
           }
         }}
       >
-        <div className="panel-body form-stack">
+        <fieldset disabled={busy} className="panel-body form-stack">
           <Field label="Имя">
             <input
               name="name"
@@ -97,14 +101,14 @@ function IdentityForm({ id }: { id: string }) {
             прежних сессий.
           </label>
           <p className="small-note">
-            Сумма аренд, Bonus и история сохраняются. Связать номер или Telegram
+            Сумма аренд и история сохраняются. Связать номер или Telegram
             другого клиента нельзя.
           </p>
           <FormMessage error={error} />
           <button className="button" disabled={busy}>
             {busy && <Spinner />}Сохранить и отозвать сессии
           </button>
-        </div>
+        </fieldset>
       </form>
     </>
   );

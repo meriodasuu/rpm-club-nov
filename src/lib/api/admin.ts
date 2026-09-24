@@ -194,7 +194,7 @@ export async function adminRoute(
         getHistory(id, "rentals", 50),
         getHistory(id, "bonus", 50),
         query(
-          "SELECT r.*,a.name referrer_name,b.name referred_name FROM referrals r JOIN users a ON a.id=r.referrer_id JOIN users b ON b.id=r.referred_id WHERE referrer_id=$1 OR referred_id=$1 ORDER BY r.created_at DESC LIMIT 50",
+          "SELECT r.*,a.name referrer_name,b.name referred_name,coalesce((SELECT jsonb_agg(w ORDER BY w.side) FROM referral_manual_awards w WHERE w.referral_id=r.id),'[]'::jsonb) awards FROM referrals r JOIN users a ON a.id=r.referrer_id JOIN users b ON b.id=r.referred_id WHERE referrer_id=$1 OR referred_id=$1 ORDER BY r.created_at DESC LIMIT 50",
           [id],
         ),
         query(

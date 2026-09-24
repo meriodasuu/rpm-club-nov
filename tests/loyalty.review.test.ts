@@ -18,6 +18,27 @@ describe('qualification date policy', () => {
 });
 suite('review regressions on PostgreSQL', () => {
   afterAll(closePool);
+  it('rejects a future completed rental even while payment is outstanding', async () => {
+    const id = await user(), tomorrow = new Date(Date.now() + 27 * 3600000).toISOString().slice(0, 10);
+    await expect(processRental({ ...rental(id), startDate: tomorrow, endDate: tomorrow, qualifiedAt: undefined, paymentStatus: 'unpaid' }, admin)).rejects.toMatchObject({ code: 'FUTURE_RENTAL' });
+    expect(await query('SELECT id FROM rentals WHERE user_id=$1', [id])).toEqual([]);
+    expect(await query('SELECT id FROM outbox_events WHERE user_id=$1', [id])).toEqual([]);
+  });
+  it('creation and import upserts cannot rewind an existing rental or bypass cancellation', async () => {
+    const id = await user(), input = { ...rental(id), status: 'in_progress' as const, paymentStatus: 'unpaid' as const };
+    const created = await processRental(input, admin);
+    const before = await query('SELECT * FROM rentals WHERE id=$1', [created.rentalId]);
+    for (const status of ['accepted', 'cancelled'] as const) {
+      await expect(processRental({ ...input, status, idempotencyKey: key() }, admin)).rejects.toMatchObject({ code: 'RENTAL_TRANSITION' });
+    }
+    await expect(processRental({ ...input, paymentStatus: 'refunded', idempotencyKey: key() }, admin)).rejects.toMatchObject({ code: 'RENTAL_TRANSITION' });
+    expect(await query('SELECT * FROM rentals WHERE id=$1', [created.rentalId])).toEqual(before);
+    const completed = await processRental({ ...input, status: 'completed', idempotencyKey: key() }, admin);
+    await expect(processRental({ ...input, idempotencyKey: key() }, admin)).rejects.toMatchObject({ code: 'RENTAL_TRANSITION' });
+    await cancelRental({ rentalId: completed.rentalId, reason: 'Explicit cancellation', idempotencyKey: key() }, admin);
+    expect((await query<{ status: string; cancelled_at: Date | null }>('SELECT status,cancelled_at FROM rentals WHERE id=$1', [created.rentalId]))[0]).toMatchObject({ status: 'cancelled', cancelled_at: expect.any(Date) });
+    expect(await reconcileAccounts()).toEqual([]);
+  });
   it('unpaid → adjustment → paid → cancel uses corrected amount and reconciles', async () => {
     const id = await user(), input = rental(id);
     const original = await processRental({ ...input, paymentStatus: 'unpaid' }, admin);

@@ -32,6 +32,7 @@ Seed: четыре синтетических участника. Исходно
 ```powershell
 npm run typecheck
 npm run lint
+npm run format:check
 npm test
 npm run test:integration
 npm run build
@@ -50,6 +51,8 @@ npm run build
 
 ## Перед реальным запуском
 
+Для VPS подготовлены [инструкция, systemd и nginx](deploy/README.md). Шаблоны рассчитаны на внешний Supabase; целевой сервер ещё требует проверки и приёмки. `npm run check:production` проверяет форму production-переменных без внешних запросов.
+
 Нужны аккаунты и ключи RPM: Telegram, Supabase Auth/Storage и публичный HTTPS-домен. Юридические тексты seed — тестовые. Реальная проверка Telegram, iPhone/Android, CRM-файла, backup/restore и нагрузки ещё нужна; локальная сборка не заменяет эту приёмку.
 
 Worker выполняет реальные отправки при наличии credentials. В опубликованном проекте Supabase cron вызывает защищённый `/api/internal/jobs` раз в минуту; при отдельной установке нужно настроить планировщик либо запускать `npm run jobs`. Production-входы без Telegram и синтетический seed отключены.
@@ -64,4 +67,4 @@ Worker выполняет реальные отправки при наличи�
 - [Подключение бота и Mini App](docs/TELEGRAM-SETUP.md): `npm run telegram:setup -- --check`, применение — `--apply`.
 - [Статусы аренды и автоматические Bonus](docs/RENTAL-WORKFLOW.md).
 
-Ветка `codex/rpm-club`. Коммит не создавался. Актуальная публикация и проверки описаны в [инструкции Vercel](docs/VERCEL-DEPLOYMENT.md).
+Ветка `codex/rpm-club`. Предыдущая публикация и проверки описаны в [инструкции Vercel](docs/VERCEL-DEPLOYMENT.md).

@@ -44,6 +44,10 @@ import { resolveTierBenefits, tierName } from "@/lib/loyalty/rules";
 import { ImportPage } from "./imports";
 import { OffersPage } from "./offers";
 import { ReferralsPage } from "./referrals";
+import {
+  awardStatusLabels,
+  type ReferralAward,
+} from "@/lib/referrals/contracts";
 import { SettingsPage } from "./settings";
 import { TeamPage } from "./team";
 import { ClubContentPage, RentalRequestsPage, TriggerRulesPage } from "./club";
@@ -910,11 +914,36 @@ function CustomerDetail({ id, staff }: { id: string; staff: StaffView }) {
                       {String(r.referred_name)}
                     </Link>
                   </td>
-                  <td>{labels[String(r.status)] ?? String(r.status)}</td>
                   <td>
-                    {r.referrer_reward == null
-                      ? "После первой аренды"
-                      : `${money(String(r.referrer_reward), false)} / ${money(String(r.referred_reward), false)}`}
+                    {r.manual_version_id && r.status === "rewarded"
+                      ? "Награды выданы"
+                      : (labels[String(r.status)] ?? String(r.status))}
+                  </td>
+                  <td>
+                    {r.manual_version_id ? (
+                      <>
+                        {(r.awards as ReferralAward[]).length
+                          ? (r.awards as ReferralAward[]).map((award) => (
+                              <div key={award.id} className="referral-award">
+                                <strong>
+                                  {award.side === "referrer"
+                                    ? "Пригласившему"
+                                    : "Другу"}
+                                  : {award.title}
+                                </strong>
+                                <small>{awardStatusLabels[award.status]}</small>
+                              </div>
+                            ))
+                          : "Награды не созданы"}
+                        <Link href="/admin/referrals" className="text-link">
+                          Условия и выдача наград
+                        </Link>
+                      </>
+                    ) : r.referrer_reward == null ? (
+                      "После первой завершённой оплаченной аренды"
+                    ) : (
+                      `Прежняя программа: ${money(String(r.referrer_reward), false)} / ${money(String(r.referred_reward), false)} Bonus`
+                    )}
                   </td>
                   <td>
                     {r.reason === "blocked_hold"

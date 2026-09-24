@@ -77,7 +77,7 @@ async function candidates(
       source = `SELECT a.identity_key,a.user_id,a.identity_key resource_id,a.registration_started_at::text occurrence_key,a.registration_started_at occurred_at,a.registration_started_at+interval '7 days' expires_at FROM notification_activity a WHERE a.registered_at IS NULL AND NOT EXISTS(SELECT 1 FROM users u WHERE u.telegram_id=a.telegram_id AND u.status='active')`;
       break;
     case "BOOK_01":
-      source = `SELECT 'u:'||d.user_id identity_key,d.user_id,d.id::text resource_id,d.updated_at::text occurrence_key,d.updated_at occurred_at,least(d.start_date::timestamp AT TIME ZONE 'Europe/Moscow'+interval '1 day',d.updated_at+interval '7 days') expires_at FROM booking_drafts d WHERE d.completed_at IS NULL AND NOT EXISTS(SELECT 1 FROM rental_requests q WHERE q.user_id=d.user_id AND q.created_at>=d.created_at)`;
+      source = `SELECT 'u:'||d.user_id identity_key,d.user_id,d.id::text resource_id,d.updated_at::text occurrence_key,d.updated_at occurred_at,least(d.start_date::timestamp AT TIME ZONE 'Europe/Moscow'+interval '1 day',d.updated_at+interval '7 days') expires_at FROM booking_drafts d JOIN club_content c ON c.id=d.car_id AND c.kind='car' AND c.active WHERE d.completed_at IS NULL AND NOT EXISTS(SELECT 1 FROM rental_requests q WHERE q.user_id=d.user_id AND q.created_at>=d.created_at)`;
       break;
     case "RIDE_01":
     case "RIDE_02":
@@ -232,11 +232,14 @@ export async function sendNotification(
       );
       return "cancelled";
     };
-    const [rule] = await tx.query<NotificationRule>(
-      "SELECT * FROM notification_rules WHERE id=$1",
-      [run.trigger_id],
+    const [rule] = await tx.query<NotificationRule & { unchanged: boolean }>(
+      "SELECT *,config=$2::jsonb AS unchanged FROM notification_rules WHERE id=$1",
+      [run.trigger_id, JSON.stringify(run.config)],
     );
     if (!rule?.config.enabled) return cancel("TRIGGER_DISABLED");
+    // A crashed sending lease is not among the pending runs cancelled by the
+    // editor. Do not revive its old text/settings after a rule has been edited.
+    if (!rule.unchanged) return cancel("RULE_UPDATED");
     if (Date.parse(run.expires_at) <= Date.now()) return cancel("EXPIRED");
     const matches = await candidates(
       { ...rule, config: { ...run.config, enabled: true } },
@@ -254,10 +257,21 @@ export async function sendNotification(
       return cancel("CONDITION_COMPLETED_OR_CHANGED");
     let target: string | null = null;
     if (run.trigger_id === "REG_01") {
-      const [a] = await tx.query<{ telegram_id: string; can_message: boolean }>(
-        "SELECT telegram_id,can_message FROM notification_activity WHERE identity_key=$1",
+      const [a] = await tx.query<{
+        telegram_id: string;
+        can_message: boolean;
+        status: string | null;
+        telegram_reachable: boolean | null;
+        enabled: boolean;
+      }>(
+        "SELECT a.telegram_id,a.can_message,u.status,u.telegram_reachable,coalesce(p.enabled,true) enabled FROM notification_activity a LEFT JOIN users u ON u.telegram_id=a.telegram_id LEFT JOIN notification_profiles p ON p.user_id=u.id WHERE a.identity_key=$1",
         [run.identity_key],
       );
+      // Registration activity may predate account binding or an administrator's
+      // block. Resolve the current recipient by Telegram identity before sending.
+      if (a?.status === "blocked") return cancel("MEMBER_UNAVAILABLE");
+      if (a?.telegram_reachable === false) return cancel("CHANNEL_UNAVAILABLE");
+      if (a?.enabled === false) return cancel("NOTIFICATIONS_DISABLED");
       if (a?.can_message) target = a.telegram_id;
     } else {
       const [u] = await tx.query<{

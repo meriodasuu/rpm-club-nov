@@ -208,7 +208,7 @@ function BookingDialog({
     };
   }, [car.id, start, end, comment, key, today, busy]);
   return (
-    <Dialog title={car.title} onClose={onClose}>
+    <Dialog title={car.title} onClose={onClose} busy={busy}>
       <form
         className="form-stack"
         onSubmit={async (e) => {

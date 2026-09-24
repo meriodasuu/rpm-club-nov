@@ -134,7 +134,7 @@ export function Person({ row }: { row: Row }) {
       </span>
       <span>
         <strong>{String(row.name)}</strong>
-          <small>{String(row.phone || row.public_member_id || "")}</small>
+        <small>{String(row.phone || row.public_member_id || "")}</small>
       </span>
     </Link>
   );

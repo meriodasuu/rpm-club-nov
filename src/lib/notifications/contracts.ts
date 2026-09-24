@@ -24,6 +24,17 @@ export const blockedNotifications: Partial<Record<NotificationId, string>> = {
   PAY_01: "Оплата на месте. Онлайн-оплаты в приложении нет.",
   PAY_02: "Оплата на месте. Онлайн-оплаты в приложении нет.",
 };
+export function notificationUnavailableReason(
+  id: NotificationId,
+  rewardMode?: "cashback" | "discount",
+) {
+  if (blockedNotifications[id]) return blockedNotifications[id];
+  if (
+    rewardMode === "discount" &&
+    ["LOY_01", "EXP_01", "EXP_02", "PROMO_01"].includes(id)
+  )
+    return "Недоступно при скидочной программе: бонусные сценарии не отправляются.";
+}
 export const notificationNames: Record<NotificationId, string> = {
   REG_01: "Регистрация не завершена",
   CARD_01: "Карта не активирована",

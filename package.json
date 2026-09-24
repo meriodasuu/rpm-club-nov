@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3001",
     "build": "next build",
+    "check:production": "node --import tsx scripts/check-production.ts",
     "start": "next start --hostname 127.0.0.1 --port 3001",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

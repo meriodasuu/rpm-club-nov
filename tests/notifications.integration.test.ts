@@ -291,6 +291,39 @@ suite("lifecycle notifications on real PostgreSQL", () => {
     expect(await sendNotification(r.id, send)).toBe("cancelled");
     expect(send).not.toHaveBeenCalled();
   });
+  it.each(["blocked", "unreachable", "disabled"] as const)(
+    "cancels registration reminders when the current Telegram recipient is %s",
+    async (state) => {
+      await query("UPDATE users SET status='pending' WHERE id=$1", [userId]);
+      await recordActivity({
+        telegramId: telegram,
+        userId: null,
+        registered: false,
+        canMessage: true,
+      });
+      await enable("REG_01");
+      await scheduleNotifications();
+      const [run] = await query<{ id: string }>(
+        "SELECT id FROM notification_runs WHERE identity_key=$1 AND trigger_id='REG_01'",
+        ["tg:" + telegram],
+      );
+      expect(run).toBeDefined();
+      if (state === "blocked")
+        await query("UPDATE users SET status='blocked' WHERE id=$1", [userId]);
+      else if (state === "unreachable")
+        await query("UPDATE users SET telegram_reachable=false WHERE id=$1", [
+          userId,
+        ]);
+      else
+        await query(
+          "INSERT INTO notification_profiles(user_id,enabled) VALUES($1,false)",
+          [userId],
+        );
+      const send = vi.fn(async () => undefined);
+      expect(await sendNotification(run.id, send)).toBe("cancelled");
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
   it("preserves a draft, rejects another user, and refuses to reopen a submitted request key", async () => {
     const [car] = await query<{ id: string }>(
       "INSERT INTO club_content(kind,title,daily_price_kopecks,active) VALUES('car','Notification QA',100000,true) RETURNING id",
@@ -339,9 +372,15 @@ suite("lifecycle notifications on real PostgreSQL", () => {
       .mockResolvedValue(undefined);
     expect(await sendNotification(r.id, send)).toBe("cancelled");
     const stranger = randomToken();
+    const strangerTelegram = String(BigInt(telegram) + 1n);
+    const [other] = await query<{ id: string }>(
+      "INSERT INTO users(name,status,telegram_id) VALUES('Other draft owner','active',$1) RETURNING id",
+      [strangerTelegram],
+    );
+    users.push(other.id);
     await query(
       "INSERT INTO miniapp_sessions(token_hash,user_id,telegram_id,expires_at) VALUES($1,$2,$3,now()+interval '1 day')",
-      [hashToken(stranger), users[0], telegram],
+      [hashToken(stranger), other.id, strangerTelegram],
     );
     expect(
       (
@@ -352,6 +391,44 @@ suite("lifecycle notifications on real PostgreSQL", () => {
         )
       ).status,
     ).toBe(404);
+  });
+  it("cancels a booking reminder if its vehicle was withdrawn after scheduling", async () => {
+    const [car] = await query<{ id: string }>(
+      "INSERT INTO club_content(kind,title,daily_price_kopecks,active) VALUES('car','Withdrawn reminder QA',100000,true) RETURNING id",
+    );
+    const day = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const response = await api("me/booking-draft", {
+      carId: car.id,
+      requestKey: randomUUID(),
+      startDate: day,
+      endDate: day,
+    });
+    expect(response.status).toBe(200);
+    await enable("BOOK_01");
+    await scheduleNotifications();
+    const [run] = await runs("BOOK_01");
+    expect(run).toBeDefined();
+    await query("UPDATE club_content SET active=false WHERE id=$1", [car.id]);
+    const send = vi.fn(async () => undefined);
+    expect(await sendNotification(run.id, send)).toBe("cancelled");
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("does not revive outdated rule settings when recovering a crashed sending lease", async () => {
+    await enable("RIDE_01");
+    await ride();
+    await scheduleNotifications();
+    const [run] = await runs("RIDE_01");
+    await query(
+      "UPDATE notification_runs SET status='sending',attempts=1,lease_until=now()-interval '1 minute' WHERE id=$1",
+      [run.id],
+    );
+    await query(
+      "UPDATE notification_rules SET config=jsonb_set(config,'{body}',to_jsonb('Updated approved text'::text)),version=version+1 WHERE id='RIDE_01'",
+    );
+    const send = vi.fn(async () => undefined);
+    expect(await sendNotification(run.id, send)).toBe("cancelled");
+    expect(send).not.toHaveBeenCalled();
+    expect((await runs("RIDE_01"))[0].reason).toBe("RULE_UPDATED");
   });
   it("persists claims before sending, retries expired leases, honors provider delay and stops blocked channels", async () => {
     await enable("RIDE_01");

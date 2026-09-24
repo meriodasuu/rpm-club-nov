@@ -257,6 +257,38 @@ suite("manual referral rewards in PostgreSQL", () => {
         [rows[0].id],
       ),
     ).toHaveLength(1);
+    const token = randomToken();
+    const [viewer] = await query<{ id: string }>(
+      "INSERT INTO admin_memberships(auth_user_id,email,name,role) VALUES($1,$2,'Referral detail QA','viewer') RETURNING id",
+      [key(), key() + "@example.invalid"],
+    );
+    await query(
+      "INSERT INTO staff_sessions(token_hash,membership_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+      [hashToken(token), viewer.id],
+    );
+    const path = `admin/customers/${users.referred}`;
+    const detail = await adminRoute(
+      new Request("http://127.0.0.1:3001/api/" + path, {
+        headers: { cookie: "rpm_staff=" + token },
+      }),
+      path,
+    );
+    const payload = await detail!.json();
+    expect(payload.referrals).toHaveLength(1);
+    expect(payload.referrals[0].awards).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: rows[0].id,
+          title: rows[0].title,
+          status: "issued",
+        }),
+        expect.objectContaining({
+          id: rows[1].id,
+          title: rows[1].title,
+          status: "pending",
+        }),
+      ]),
+    );
     await expect(
       query("UPDATE referral_manual_awards SET title='rewrite' WHERE id=$1", [
         rows[0].id,
@@ -414,9 +446,16 @@ suite("manual referral rewards in PostgreSQL", () => {
       ),
     ).toBe(true);
     const token = randomToken();
+    const telegramId = String(
+      BigInt("0x" + key().replaceAll("-", "").slice(0, 12)),
+    );
+    await query("UPDATE users SET telegram_id=$2 WHERE id=$1", [
+      users.referred,
+      telegramId,
+    ]);
     await query(
-      "INSERT INTO miniapp_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 hour')",
-      [users.referred, hashToken(token)],
+      "INSERT INTO miniapp_sessions(user_id,telegram_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",
+      [users.referred, telegramId, hashToken(token)],
     );
     const response = await clientRoute(
       new Request("http://127.0.0.1:3001/api/me/referral", {

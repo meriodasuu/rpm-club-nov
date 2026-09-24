@@ -1,0 +1,31 @@
+[Unit]
+Description=RPM Club web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rpm-club
+Group=rpm-club
+WorkingDirectory=/opt/rpm-club/current
+EnvironmentFile=/etc/rpm-club.env
+Environment=NODE_ENV=production
+Environment=LOCAL_PREVIEW=0
+Environment=NODE_OPTIONS=--max-old-space-size=768
+ExecStartPre=/usr/bin/node --import tsx scripts/check-production.ts
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3001
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/rpm-club/current/.next
+MemoryHigh=1G
+MemoryMax=1200M
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

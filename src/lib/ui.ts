@@ -61,7 +61,7 @@ export const labels: Record<string, string> = {
   held: "На проверке",
   issued: "Выпущена",
   unavailable: "Не настроено",
-  succeeded: "Доставлено",
+  succeeded: "Отправлено",
   suppressed: "Не отправлено по правилам",
   dead: "Ошибка",
   retry: "Повтор",

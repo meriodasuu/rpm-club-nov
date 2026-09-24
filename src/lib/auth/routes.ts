@@ -207,12 +207,14 @@ export async function authRoute(
             session.telegram_id,
             session.telegram_profile.username ?? null,
             input.marketingConsent,
-            !!session.telegram_profile.allows_write_to_pm,
+            // A verified contact arrived in this bot's private chat. This is
+            // stronger evidence than the optional initData permission flag.
+            true,
           ],
         );
       else
         await tx.query(
-          "UPDATE users SET telegram_id=$2,telegram_username=$3,marketing_consent=$4,phone=COALESCE(phone,$5),updated_at=now() WHERE id=$1",
+          "UPDATE users SET telegram_id=$2,telegram_username=$3,marketing_consent=$4,phone=COALESCE(phone,$5),telegram_reachable=true,updated_at=now() WHERE id=$1",
           [
             userId,
             session.telegram_id,

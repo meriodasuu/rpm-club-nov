@@ -111,7 +111,7 @@ export async function processRental(input:RentalInput,actor:Actor):Promise<Renta
   if(input.qualifiedAt&&!Number.isFinite(Date.parse(input.qualifiedAt)))fail('INVALID_DATE','Некорректное время квалификации');
   const qualifiedAt=resolveQualifiedAt(input.endDate,mode,input.qualifiedAt);
   if(!Number.isFinite(Date.parse(qualifiedAt))||Date.parse(qualifiedAt)<Date.parse(input.endDate+'T00:00:00+03:00'))fail('INVALID_DATE','Некорректное время квалификации');
-  const qualifying=input.status==='completed'&&input.paymentStatus==='paid';if(qualifying&&(Date.parse(qualifiedAt)>Date.now()||Date.parse(input.endDate+'T00:00:00+03:00')>Date.now()))fail('FUTURE_RENTAL','Завершение аренды не может быть в будущем');
+  const qualifying=input.status==='completed'&&input.paymentStatus==='paid';if((qualifying&&Date.parse(qualifiedAt)>Date.now())||(input.status==='completed'&&Date.parse(input.endDate+'T00:00:00+03:00')>Date.now()))fail('FUTURE_RENTAL','Завершение аренды не может быть в будущем');
   return command('rental',input,actor,tx=>processRentalTransaction(tx,input,actor,qualifiedAt,mode));
 }
 async function processRentalTransaction(tx:Db,input:RentalInput,actor:Actor,qualifiedAt:string,mode:'historical'|'operational'):Promise<RentalResult>{
@@ -127,6 +127,10 @@ async function processRentalTransaction(tx:Db,input:RentalInput,actor:Actor,qual
       // A recorded nonqualifying rental may advance to completed+paid, but immutable identity/price/dates must match.
       const [same]=await tx.query<{matches:boolean}>('SELECT user_id=$2::uuid AND amount_kopecks=$3 AND car_name=$4 AND start_date=$5::date AND end_date=$6::date AND mode=$7 AS matches FROM rentals WHERE id=$1',[r.id,input.userId,input.amountKopecks,input.carName.trim(),input.startDate,input.endDate,mode]);
       if(r.is_qualified||r.cancelled_at||r.status==='cancelled'||!same.matches)fail('RENTAL_CONFLICT','Аренда с этим ID содержит другие данные',409);
+      // Creation/import endpoints share the same forward-only lifecycle as the status editor.
+      // Cancellations must use cancelRental so existing redemptions are also reversed.
+      const stages=['accepted','in_progress','completed'];
+      if(stages.indexOf(input.status)<stages.indexOf(r.status)||input.paymentStatus==='refunded')fail('RENTAL_TRANSITION','Обратный переход недоступен. Для возврата используйте отмену аренды.',409);
     }
     const historical=mode==='historical'||Date.parse(qualifiedAt)<Date.parse(p.programStartsAt);let rentalId=old[0]?.id;
     if(rentalId)await tx.query('UPDATE rentals SET status=$2,payment_status=$3,qualified_at=$4,payload_hash=$5,program_version_id=$6,is_qualified=$7,pickup_at=coalesce($8::timestamptz,pickup_at),processed_at=now() WHERE id=$1',[rentalId,input.status,input.paymentStatus,qualifiedAt,payloadHash,p.id,qualifying,input.pickupAt??null]);
