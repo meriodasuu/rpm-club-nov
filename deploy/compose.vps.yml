@@ -53,6 +53,14 @@ services:
       options: { max-size: 10m, max-file: "3" }
   app:
     <<: *runtime
+    # Poller resolves the shared dual-stack app address with ipv6first.
+    # Listen on both families so internal Telegram updates reach the app.
+    command:
+      [
+        sh,
+        -c,
+        "node --import tsx scripts/check-production.ts && exec node node_modules/next/dist/bin/next start --hostname :: --port 3001",
+      ]
     environment:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
