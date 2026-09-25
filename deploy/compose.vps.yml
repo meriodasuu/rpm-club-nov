@@ -57,7 +57,7 @@ services:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
       VERCEL: "0"
-      NODE_OPTIONS: --max-old-space-size=384 --dns-result-order=ipv6first
+      NODE_OPTIONS: --max-old-space-size=384 --dns-result-order=ipv6first --no-network-family-autoselection
       NEXT_TELEMETRY_DISABLED: "1"
       MEDIA_DIR: /data/media
       TELEGRAM_UPDATES_MODE: polling
@@ -101,7 +101,7 @@ services:
         format: raw
     environment:
       NODE_ENV: production
-      NODE_OPTIONS: --max-old-space-size=96 --dns-result-order=ipv6first
+      NODE_OPTIONS: --max-old-space-size=96 --dns-result-order=ipv6first --no-network-family-autoselection
     networks: [backend, catalog_source, egress]
     depends_on:
       db: { condition: service_healthy }
@@ -162,7 +162,7 @@ services:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
       TELEGRAM_UPDATES_MODE: polling
-      NODE_OPTIONS: --max-old-space-size=96 --dns-result-order=ipv6first
+      NODE_OPTIONS: --max-old-space-size=96 --dns-result-order=ipv6first --no-network-family-autoselection
     networks: [backend, egress]
     depends_on:
       app: { condition: service_healthy }
@@ -196,7 +196,7 @@ services:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
       VERCEL: "0"
-      NODE_OPTIONS: --max-old-space-size=160 --dns-result-order=ipv6first
+      NODE_OPTIONS: --max-old-space-size=160 --dns-result-order=ipv6first --no-network-family-autoselection
     networks: [backend, egress]
     depends_on:
       db: { condition: service_healthy }
