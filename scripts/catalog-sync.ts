@@ -2,6 +2,7 @@ import pg from "pg";
 import { writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { syncCatalogSnapshot } from "../src/lib/club/catalog";
+import { syncRoutesSnapshot } from "../src/lib/club/routes-sync";
 import { closePool } from "../src/lib/db";
 
 const shutdown = new AbortController();
@@ -47,6 +48,21 @@ try {
     const status = await syncCatalogSnapshot(result.rows.map((row) => row.car));
     await writeFile("/tmp/rpm-catalog-heartbeat", String(Date.now()));
     if (status.changed || status.removed) console.log(JSON.stringify(status));
+    try {
+      const routes = await client.query(
+        "SELECT route FROM rpm_club_catalog.routes LIMIT 5001",
+      );
+      const routeStatus = await syncRoutesSnapshot(
+        routes.rows.map((row) => row.route),
+      );
+      await writeFile("/tmp/rpm-routes-heartbeat", String(Date.now()));
+      if (routeStatus.changed || routeStatus.removed || routeStatus.archived)
+        console.log(JSON.stringify({ routes: routeStatus }));
+    } catch {
+      console.error(
+        "Route synchronization failed; previous routes retained. Car synchronization continues.",
+      );
+    }
     if (!dirty && !shutdown.signal.aborted && !connectionLost) {
       await new Promise<void>((resolve) => {
         const done = () => {

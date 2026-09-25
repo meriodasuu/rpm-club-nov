@@ -238,12 +238,13 @@ export async function clubRoute(
           "SELECT * FROM club_content WHERE kind=$1 AND NOT source_deleted ORDER BY sort_order,created_at DESC,id LIMIT 200",
           [kind],
         ),
-        ...(kind === "car"
+        ...(kind === "car" || kind === "route"
           ? {
               catalogSync:
                 (
                   await query(
-                    "SELECT value FROM program_settings WHERE key='catalog:sync'",
+                    "SELECT value FROM program_settings WHERE key=$1",
+                    [kind === "car" ? "catalog:sync" : "routes:sync"],
                   )
                 )[0]?.value ?? null,
             }
@@ -253,11 +254,13 @@ export async function clubRoute(
     if (request.method === "POST" || request.method === "PATCH") {
       requireOrigin(request);
       const input = await body(request, contentSchema);
-      if (input.kind === "car")
+      if (input.kind === "car" || input.kind === "route")
         throw new HttpError(
           409,
           "CATALOG_MANAGED_ON_SITE",
-          "Автопарк редактируется в админке сайта RPM Rent",
+          input.kind === "car"
+            ? "Автопарк редактируется в админке сайта RPM Rent"
+            : "Маршруты редактируются в разделе «Локации» админки сайта RPM Rent",
         );
       const row = await transaction(async (tx) => {
         const values = [

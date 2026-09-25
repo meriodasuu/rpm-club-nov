@@ -80,6 +80,13 @@ export interface ClubContent {
     transmission?: string;
     driveType?: string;
   };
+  route_details?: {
+    address?: string;
+    workingHours?: string;
+    directions?: string;
+    mapUrl?: string;
+    websiteUrl?: string;
+  };
 }
 export function moscowDate(at = new Date()) {
   return new Date(at.getTime() + 3 * 3600000).toISOString().slice(0, 10);

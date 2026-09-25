@@ -148,7 +148,7 @@ services:
           CMD,
           node,
           -e,
-          "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-catalog-heartbeat','utf8'))<60000?0:1)}catch{process.exit(1)}",
+          "const fs=require('node:fs');try{process.exit(['/tmp/rpm-catalog-heartbeat','/tmp/rpm-routes-heartbeat'].every(p=>Date.now()-Number(fs.readFileSync(p,'utf8'))<60000)?0:1)}catch{process.exit(1)}",
         ]
       interval: 20s
       timeout: 5s

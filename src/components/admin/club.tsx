@@ -41,10 +41,11 @@ export function ClubContentPage({
   kind: ContentKind;
   staff: StaffView;
 }) {
+  const synced = kind === "car" || kind === "route";
   const r = useResource<{
     items: ClubContent[];
     catalogSync?: { at: string; total: number; published: number } | null;
-  }>("admin/club-content?kind=" + kind, kind === "car" ? 5000 : 0);
+  }>("admin/club-content?kind=" + kind, synced ? 5000 : 0);
   const [editing, setEditing] = useState<Partial<ClubContent> | null>(null);
   const Icon = kind === "car" ? CarFront : kind === "route" ? Map : BookOpen;
   return (
@@ -52,19 +53,25 @@ export function ClubContentPage({
       <PageHeading
         title={names[kind]}
         subtitle={
-          kind === "car"
-            ? "Автопарк синхронизируется с сайтом RPM Rent. Изменения появятся здесь автоматически."
+          synced
+            ? `${kind === "car" ? "Автопарк синхронизируется" : "Маршруты синхронизируются"} с сайтом RPM Rent. Изменения появятся здесь автоматически.`
             : "Опубликованные материалы видны участникам клуба"
         }
       >
-        {kind === "car" ? (
+        {synced ? (
           <a
             className="button"
-            href="https://rpmrent.ru/admin/cars"
+            href={
+              kind === "car"
+                ? "https://rpmrent.ru/admin/cars"
+                : "https://rpmrent.ru/admin/locations"
+            }
             target="_blank"
             rel="noreferrer"
           >
-            Открыть автопарк сайта
+            {kind === "car"
+              ? "Открыть автопарк сайта"
+              : "Открыть локации сайта"}
           </a>
         ) : (
           staff.role !== "viewer" && (
@@ -75,7 +82,7 @@ export function ClubContentPage({
           )
         )}
       </PageHeading>
-      {kind === "car" && r.data && (
+      {synced && r.data && (
         <p className="small-note">
           {r.data.catalogSync
             ? `Последняя синхронизация: ${new Date(r.data.catalogSync.at).toLocaleString("ru-RU")}. Опубликовано: ${r.data.catalogSync.published}.`
@@ -109,7 +116,7 @@ export function ClubContentPage({
                 {kind === "wiki" && (
                   <p className="small-note">{categories[item.category]}</p>
                 )}
-                {kind !== "car" && staff.role !== "viewer" && (
+                {!synced && staff.role !== "viewer" && (
                   <button
                     className="button button-outline button-full"
                     onClick={() => setEditing(item)}
@@ -125,9 +132,9 @@ export function ClubContentPage({
       )}
       {r.data?.items.length === 0 && (
         <Empty title="Здесь пока пусто">
-          {kind === "car"
-            ? "Добавьте автомобиль в админке сайта RPM Rent — он появится здесь автоматически."
-            : `Добавьте ${kind === "route" ? "маршрут" : "статью"}, чтобы он появился в клубе.`}
+          {synced
+            ? `Добавьте ${kind === "car" ? "автомобиль" : "локацию"} в админке сайта RPM Rent — запись появится здесь автоматически.`
+            : "Добавьте статью, чтобы она появилась в клубе."}
         </Empty>
       )}
       {editing && (

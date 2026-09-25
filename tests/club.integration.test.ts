@@ -405,14 +405,36 @@ suite("club content, booking and trigger integration", () => {
     ).rejects.toThrow("ROLLBACK_QA");
   });
   it("schedules once, checks consent again, and suppresses withdrawn routes", async () => {
-    const route = await (
-      await call("admin/club-content", admin, {
-        kind: "route",
-        title: "QA route",
-        body: "Route description",
-        active: true,
-      })
-    ).json();
+    expect(
+      (
+        await call("admin/club-content", admin, {
+          kind: "route",
+          title: "QA route",
+          body: "Route description",
+          active: true,
+        })
+      ).status,
+    ).toBe(409);
+    const [route] = await query<{ id: string }>(
+      "INSERT INTO club_content(kind,title,body,active,published_at,source,source_id) VALUES('route','QA route','Route description',true,now(),'rpm-rent-locations',$1) RETURNING id",
+      [randomUUID()],
+    );
+    expect(
+      (
+        await call(
+          "admin/club-content/" + route.id,
+          admin,
+          {
+            kind: "route",
+            title: "Changed route",
+            body: "Changed description",
+            active: false,
+            expectedVersion: 1,
+          },
+          { method: "PATCH" },
+        )
+      ).status,
+    ).toBe(409);
     await query("UPDATE trigger_rules SET enabled=true WHERE kind='new_route'");
     await scheduleClubTriggers(500);
     await scheduleClubTriggers(500);

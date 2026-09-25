@@ -24,7 +24,12 @@ import { resolveTierBenefits, tierName } from "@/lib/loyalty/rules";
 import type { AccountSnapshot } from "@/lib/loyalty/types";
 import { type ClubContent, type RentalRequest } from "@/lib/club/contracts";
 
-import { BookingDialog, CarCard, type BookingDraft } from "./rental";
+import {
+  BookingDialog,
+  CarCard,
+  CarGallery,
+  type BookingDraft,
+} from "./rental";
 
 export function ClubLinks() {
   return (
@@ -200,7 +205,10 @@ export function RentalRequests() {
   );
 }
 export function RoutesScreen() {
-  const r = useResource<{ items: ClubContent[] }>("club/content?kind=route");
+  const r = useResource<{ items: ClubContent[] }>(
+    "club/content?kind=route",
+    5000,
+  );
   return (
     <>
       <h1>Куда отправиться</h1>
@@ -214,9 +222,7 @@ export function RoutesScreen() {
       ) : (
         r.data.items.map((item) => (
           <article className="catalog-card" key={item.id}>
-            {item.image_url && (
-              <img className="content-cover" src={item.image_url} alt="" />
-            )}
+            {item.image_url && <CarGallery car={item} />}
             <div className="catalog-body">
               <h2>{item.title}</h2>
               <p>{item.summary}</p>
@@ -227,6 +233,27 @@ export function RoutesScreen() {
                   : ""}
               </p>
               <p className="preserve-lines">{item.body}</p>
+              {item.route_details?.address && (
+                <p className="preserve-lines">
+                  <strong>Адрес</strong>
+                  <br />
+                  {item.route_details.address}
+                </p>
+              )}
+              {item.route_details?.workingHours && (
+                <p className="preserve-lines">
+                  <strong>Часы работы</strong>
+                  <br />
+                  {item.route_details.workingHours}
+                </p>
+              )}
+              {item.route_details?.directions && (
+                <p className="preserve-lines">
+                  <strong>Как добраться</strong>
+                  <br />
+                  {item.route_details.directions}
+                </p>
+              )}
               {item.link_url && (
                 <a
                   className="button button-outline button-full"
@@ -234,7 +261,12 @@ export function RoutesScreen() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Открыть маршрут <ArrowUpRight size={17} />
+                  {item.route_details?.mapUrl
+                    ? "Открыть карту"
+                    : item.source === "rpm-rent-locations"
+                      ? "Подробнее на сайте"
+                      : "Открыть маршрут"}{" "}
+                  <ArrowUpRight size={17} />
                 </a>
               )}
             </div>
