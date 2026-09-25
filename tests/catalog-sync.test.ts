@@ -49,6 +49,13 @@ describe("site catalog mapping", () => {
     expect(car.minimumDays).toBe(2);
     expect(car.body).toContain("300 л.с.");
     expect(car.summary).toContain("2024 г.");
+    expect(car.vehicleSpecs).toEqual({
+      brand: "RPM",
+      model: "Test",
+      year: 2024,
+      transmission: "Автомат",
+      driveType: "Полный",
+    });
   });
   it("does not publish drafts or demo cars, retains unavailable published cars", () => {
     expect(
@@ -101,13 +108,14 @@ suite("PostgreSQL catalog mirror", () => {
       ...car,
       title: "Updated",
       pricePerDay: 15000,
+      year: 2025,
       images: [{ url: "/new-photo.webp", alt: "New" }],
     };
     await syncCatalogSnapshot([changed]);
     expect(
       (
         await query(
-          "SELECT id,version,title,daily_price_kopecks,image_url FROM club_content WHERE source_id=$1",
+          "SELECT id,version,title,daily_price_kopecks,image_url,vehicle_specs FROM club_content WHERE source_id=$1",
           [car.id],
         )
       )[0],
@@ -117,6 +125,7 @@ suite("PostgreSQL catalog mirror", () => {
       title: "Updated",
       daily_price_kopecks: "1500000",
       image_url: "https://rpmrent.ru/new-photo.webp",
+      vehicle_specs: { year: 2025, brand: "RPM", transmission: "Автомат" },
     });
     await syncCatalogSnapshot([{ ...changed, published: false }]);
     expect(

@@ -12,6 +12,7 @@ import {
 import Link from "next/link";
 import {
   ArrowUpRight,
+  ArrowLeft,
   RefreshCw,
   AlertCircle,
   LoaderCircle,
@@ -216,12 +217,14 @@ export function Dialog({
   children,
   protectChanges = false,
   busy = false,
+  fullScreen = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   protectChanges?: boolean;
   busy?: boolean;
+  fullScreen?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -235,18 +238,21 @@ export function Dialog({
   useEffect(() => {
     const d = ref.current;
     const opener = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    if (fullScreen) document.body.style.overflow = "hidden";
     d?.showModal();
     return () => {
       d?.close();
+      if (fullScreen) document.body.style.overflow = previousOverflow;
       queueMicrotask(() => {
         if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
       });
     };
-  }, []);
+  }, [fullScreen]);
   return (
     <dialog
       ref={ref}
-      className="dialog"
+      className={fullScreen ? "dialog rental-dialog" : "dialog"}
       aria-labelledby={titleId}
       onChangeCapture={() => {
         if (protectChanges) setDirty(true);
@@ -261,17 +267,28 @@ export function Dialog({
       }}
     >
       <div className="dialog-head">
-        <h2 id={titleId}>{title}</h2>
+        {!fullScreen && <h2 id={titleId}>{title}</h2>}
         <button
           type="button"
-          className="icon-button"
+          className={fullScreen ? "rental-back" : "icon-button"}
           onClick={requestClose}
-          aria-label="Закрыть"
+          aria-label={fullScreen ? "Назад" : "Закрыть"}
           disabled={busy}
         >
-          <X size={21} />
+          {fullScreen ? (
+            <>
+              <ArrowLeft size={20} /> Назад
+            </>
+          ) : (
+            <X size={21} />
+          )}
         </button>
       </div>
+      {fullScreen && (
+        <h2 className="rental-dialog-title" id={titleId}>
+          {title}
+        </h2>
+      )}
       {confirmClose && (
         <div className="dialog-close-warning" role="alert">
           <p>Изменения не сохранены. Закрыть форму?</p>

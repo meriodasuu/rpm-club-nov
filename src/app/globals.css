@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../components/miniapp/rental.css";
 
 /* Club services and membership cards */
 .card-track {

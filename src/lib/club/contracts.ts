@@ -73,6 +73,13 @@ export interface ClubContent {
   available?: boolean;
   minimum_rental_days?: number;
   sort_order?: number;
+  vehicle_specs?: {
+    brand?: string;
+    model?: string;
+    year?: number | null;
+    transmission?: string;
+    driveType?: string;
+  };
 }
 export function moscowDate(at = new Date()) {
   return new Date(at.getTime() + 3 * 3600000).toISOString().slice(0, 10);

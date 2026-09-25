@@ -17,19 +17,14 @@ import {
   Loading,
   Failure,
   Empty,
-  Dialog,
-  Field,
   FormMessage,
-  Spinner,
 } from "@/components/shared";
 import { date, money } from "@/lib/ui";
 import { resolveTierBenefits, tierName } from "@/lib/loyalty/rules";
 import type { AccountSnapshot } from "@/lib/loyalty/types";
-import {
-  moscowDate,
-  type ClubContent,
-  type RentalRequest,
-} from "@/lib/club/contracts";
+import { type ClubContent, type RentalRequest } from "@/lib/club/contracts";
+
+import { BookingDialog, CarCard, type BookingDraft } from "./rental";
 
 export function ClubLinks() {
   return (
@@ -73,11 +68,8 @@ export function RentalScreen() {
   );
   return (
     <>
-      <h1>Аренда автомобиля</h1>
-      <p className="screen-subtitle">
-        Выберите автомобиль и даты. Менеджер подтвердит вашу поездку. Оплата на
-        месте.
-      </p>
+      <h1>Автопарк</h1>
+      <p className="screen-subtitle">Выберите автомобиль для поездки</p>
       <FormMessage error={resumeError} />
       {r.error ? (
         <Failure error={r.error} retry={r.refresh} />
@@ -90,38 +82,14 @@ export function RentalScreen() {
       ) : (
         <div className="catalog-list">
           {r.data.items.map((car) => (
-            <article className="catalog-card" key={car.id}>
-              {car.image_url ? (
-                <img
-                  className="content-cover"
-                  src={car.image_url}
-                  alt={car.title}
-                  loading="lazy"
-                />
-              ) : (
-                <div className="content-placeholder">
-                  <CarFront size={38} />
-                </div>
-              )}
-              <div className="catalog-body">
-                <h2>{car.title}</h2>
-                <p>{car.summary}</p>
-                <strong>{money(car.daily_price_kopecks)} / сутки</strong>
-                {car.available === false && (
-                  <p className="small-note">Временно недоступен для аренды</p>
-                )}
-                <button
-                  className="button button-full"
-                  disabled={car.available === false}
-                  onClick={() => {
-                    setResume(null);
-                    setSelected(car);
-                  }}
-                >
-                  Выбрать даты
-                </button>
-              </div>
-            </article>
+            <CarCard
+              key={car.id}
+              car={car}
+              onBook={() => {
+                setResume(null);
+                setSelected(car);
+              }}
+            />
           ))}
         </div>
       )}
@@ -141,199 +109,15 @@ export function RentalScreen() {
             setSelected(null);
             setResume(null);
             setRequestVersion((v) => v + 1);
+            requestAnimationFrame(() =>
+              document
+                .getElementById("my-requests")
+                ?.scrollIntoView({ behavior: "smooth" }),
+            );
           }}
         />
       )}
     </>
-  );
-}
-type Quote = {
-  dailyPriceKopecks: string;
-  days: number;
-  grossKopecks: string;
-  discountKopecks: string;
-  totalKopecks: string;
-  discountBps: number;
-  carVersion: number;
-  programId: string;
-};
-type BookingDraft = {
-  id: string;
-  car_id: string;
-  start_date: string;
-  end_date: string;
-  comment: string;
-  request_key: string;
-};
-function BookingDialog({
-  car,
-  initial,
-  onClose,
-  onDone,
-}: {
-  car: ClubContent;
-  initial?: BookingDraft | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [today] = useState(() => moscowDate());
-  const [start, setStart] = useState(initial?.start_date ?? today),
-    [end, setEnd] = useState(
-      () => initial?.end_date ?? moscowDate(new Date(Date.now() + 86400000)),
-    );
-  const [quote, setQuote] = useState<Quote | null>(null),
-    [comment, setComment] = useState(initial?.comment ?? ""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const [key] = useState(() => initial?.request_key ?? crypto.randomUUID());
-  const currentQuote = quote?.carVersion === car.version ? quote : null;
-  const [draftMessage, setDraftMessage] = useState("");
-  useEffect(() => {
-    let current = true;
-    const timer = setTimeout(() => {
-      if (start >= today && end >= start && !busy)
-        void command("me/booking-draft", {
-          carId: car.id,
-          startDate: start,
-          endDate: end,
-          comment,
-          requestKey: key,
-        })
-          .then(() => {
-            if (current)
-              setDraftMessage(
-                "Выбор сохранён. Заявка отправится только после подтверждения.",
-              );
-          })
-          .catch(() => {
-            if (current)
-              setDraftMessage(
-                "Черновик не сохранён. Вы можете отправить заявку обычным способом.",
-              );
-          });
-    }, 600);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [car.id, start, end, comment, key, today, busy]);
-  return (
-    <Dialog title={car.title} onClose={onClose} busy={busy}>
-      <form
-        className="form-stack"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            const payload = {
-              carId: car.id,
-              startDate: start,
-              endDate: end,
-              comment,
-            };
-            if (!currentQuote)
-              setQuote(await command<Quote>("me/rental-quotes", payload));
-            else {
-              await command(
-                "me/rental-requests",
-                {
-                  ...payload,
-                  expectedTotal: currentQuote.totalKopecks,
-                  expectedCarVersion: currentQuote.carVersion,
-                  expectedProgramId: currentQuote.programId,
-                },
-                "POST",
-                key,
-              );
-              onDone();
-            }
-          } catch (e) {
-            setError((e as Error).message);
-            setQuote(null);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <p className="small-note">{draftMessage}</p>
-        {!!car.image_urls?.length && (
-          <div className="catalog-gallery" aria-label="Фотографии автомобиля">
-            {car.image_urls.map((image, index) => (
-              <img
-                key={image.url + index}
-                src={image.url}
-                alt={image.alt || car.title}
-                loading="lazy"
-              />
-            ))}
-          </div>
-        )}
-        {car.body && <p className="preserve-lines small-note">{car.body}</p>}
-        <Field label="Дата начала">
-          <input
-            type="date"
-            disabled={busy}
-            min={today}
-            value={start}
-            required
-            onChange={(e) => {
-              setStart(e.target.value);
-              setQuote(null);
-            }}
-          />
-        </Field>
-        <Field label="Дата возврата">
-          <input
-            type="date"
-            disabled={busy}
-            min={start}
-            value={end}
-            required
-            onChange={(e) => {
-              setEnd(e.target.value);
-              setQuote(null);
-            }}
-          />
-        </Field>
-        <Field label="Пожелания">
-          <textarea
-            disabled={busy}
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            maxLength={1000}
-            rows={2}
-          />
-        </Field>
-        {currentQuote && (
-          <div className="quote-panel">
-            <p>
-              {currentQuote.days} сут. × {money(currentQuote.dailyPriceKopecks)}
-            </p>
-            {currentQuote.discountBps > 0 && (
-              <p>
-                Скидка по карте {currentQuote.discountBps / 100}%: −
-                {money(currentQuote.discountKopecks)}
-              </p>
-            )}
-            <strong>Итого: {money(currentQuote.totalKopecks)}</strong>
-          </div>
-        )}
-        <p className="small-note">
-          Минимальный срок — {car.minimum_rental_days ?? 1} сут. Заявка не
-          гарантирует наличие автомобиля. Выдачу и окончательные условия
-          подтвердит менеджер.
-        </p>
-        <FormMessage error={error} />
-        <button
-          className="button button-full"
-          disabled={busy || car.available === false}
-        >
-          {busy && <Spinner />}
-          {currentQuote ? "Отправить заявку" : "Рассчитать стоимость"}
-        </button>
-      </form>
-    </Dialog>
   );
 }
 export function RentalRequests() {

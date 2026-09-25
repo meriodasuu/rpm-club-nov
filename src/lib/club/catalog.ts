@@ -113,6 +113,13 @@ export function mapCatalogSnapshot(input: unknown) {
       body,
       imageUrl: images[0]?.url ?? "",
       images,
+      vehicleSpecs: {
+        brand: car.brand,
+        model: car.model,
+        year: car.year,
+        transmission: car.transmission,
+        driveType: car.driveType,
+      },
       linkUrl: `https://rpmrent.ru/cars/${encodeURIComponent(car.slug)}`,
       price: (BigInt(car.pricePerDay) * 100n).toString(),
       active: car.published && !car.isDemo,
@@ -138,11 +145,11 @@ export async function syncCatalogSnapshot(input: unknown) {
     let changed = 0;
     for (const car of cars) {
       const saved = await tx.query<{ id: string }>(
-        `INSERT INTO club_content(kind,title,summary,body,image_url,image_urls,link_url,daily_price_kopecks,active,available,minimum_rental_days,sort_order,source,source_id,source_synced_at,published_at)
-        VALUES('car',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'rpm-rent',$12,now(),CASE WHEN $8 THEN now() ELSE NULL END)
-        ON CONFLICT(source,source_id) DO UPDATE SET title=excluded.title,summary=excluded.summary,body=excluded.body,image_url=excluded.image_url,image_urls=excluded.image_urls,link_url=excluded.link_url,daily_price_kopecks=excluded.daily_price_kopecks,active=excluded.active,available=excluded.available,minimum_rental_days=excluded.minimum_rental_days,sort_order=excluded.sort_order,source_deleted=false,source_synced_at=now(),published_at=CASE WHEN excluded.active THEN coalesce(club_content.published_at,now()) ELSE club_content.published_at END,version=club_content.version+1,updated_at=now()
-        WHERE (club_content.title,club_content.summary,club_content.body,club_content.image_url,club_content.image_urls,club_content.link_url,club_content.daily_price_kopecks,club_content.active,club_content.available,club_content.minimum_rental_days,club_content.sort_order,club_content.source_deleted)
-        IS DISTINCT FROM (excluded.title,excluded.summary,excluded.body,excluded.image_url,excluded.image_urls,excluded.link_url,excluded.daily_price_kopecks,excluded.active,excluded.available,excluded.minimum_rental_days,excluded.sort_order,false) RETURNING id`,
+        `INSERT INTO club_content(kind,title,summary,body,image_url,image_urls,link_url,daily_price_kopecks,active,available,minimum_rental_days,sort_order,source,source_id,source_synced_at,published_at,vehicle_specs)
+        VALUES('car',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'rpm-rent',$12,now(),CASE WHEN $8 THEN now() ELSE NULL END,$13)
+        ON CONFLICT(source,source_id) DO UPDATE SET vehicle_specs=excluded.vehicle_specs,title=excluded.title,summary=excluded.summary,body=excluded.body,image_url=excluded.image_url,image_urls=excluded.image_urls,link_url=excluded.link_url,daily_price_kopecks=excluded.daily_price_kopecks,active=excluded.active,available=excluded.available,minimum_rental_days=excluded.minimum_rental_days,sort_order=excluded.sort_order,source_deleted=false,source_synced_at=now(),published_at=CASE WHEN excluded.active THEN coalesce(club_content.published_at,now()) ELSE club_content.published_at END,version=club_content.version+1,updated_at=now()
+        WHERE (club_content.title,club_content.summary,club_content.body,club_content.image_url,club_content.image_urls,club_content.link_url,club_content.daily_price_kopecks,club_content.active,club_content.available,club_content.minimum_rental_days,club_content.sort_order,club_content.source_deleted,club_content.vehicle_specs)
+        IS DISTINCT FROM (excluded.title,excluded.summary,excluded.body,excluded.image_url,excluded.image_urls,excluded.link_url,excluded.daily_price_kopecks,excluded.active,excluded.available,excluded.minimum_rental_days,excluded.sort_order,false,excluded.vehicle_specs) RETURNING id`,
         [
           car.title,
           car.summary,
@@ -156,6 +163,7 @@ export async function syncCatalogSnapshot(input: unknown) {
           car.minimumDays,
           car.sortOrder,
           car.sourceId,
+          JSON.stringify(car.vehicleSpecs),
         ],
       );
       changed += saved.length;
