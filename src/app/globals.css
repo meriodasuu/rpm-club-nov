@@ -1840,6 +1840,7 @@ small {
   border-bottom: 1px solid #252525;
   padding: 12px 35px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 15px;
@@ -1850,7 +1851,8 @@ small {
   margin-right: 15px;
   color: #777;
 }
-.admin-topbar .staff-add-shortcut {
+.admin-topbar .staff-add-shortcut,
+.admin-topbar .admin-site-shortcut {
   color: #fff;
   margin: 0;
   min-height: 48px;

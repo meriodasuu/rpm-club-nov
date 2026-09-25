@@ -22,6 +22,7 @@ import {
   LogOut,
   Menu,
   Warehouse,
+  ExternalLink,
 } from "lucide-react";
 import { Fragment, useState, type ReactNode } from "react";
 import {
@@ -191,6 +192,15 @@ export function AdminShell({
             {nav.find((n) => n[0] === section)?.[1] ?? "Карточка клиента"}
           </div>
           <BrowserAccess />
+          <a
+            href="https://rpmrent.ru/admin"
+            className="button button-outline admin-site-shortcut"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ExternalLink size={18} />
+            Админка RPM Rent
+          </a>
           {staff.can_manage_staff && (
             <Link
               href="/admin/team#add-admin"
