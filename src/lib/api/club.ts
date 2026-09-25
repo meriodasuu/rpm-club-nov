@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { query, transaction, type Db } from "@/lib/db";
 import { requireSession, requireStaff, rateLimit } from "@/lib/auth/session";
+import { assertCatalogBookable } from "@/lib/club/catalog";
 import {
   body,
   HttpError,
@@ -75,7 +76,7 @@ export async function clubRoute(
       .parse(new URL(request.url).searchParams.get("kind"));
     return json({
       items: await query(
-        "SELECT * FROM club_content WHERE kind=$1 AND active ORDER BY published_at DESC,id LIMIT 200",
+        "SELECT * FROM club_content WHERE kind=$1 AND active ORDER BY sort_order,published_at DESC,id LIMIT 200",
         [kind],
       ),
     });
@@ -101,6 +102,7 @@ export async function clubRoute(
           [input.carId],
         );
         if (!car) return notFound();
+        await assertCatalogBookable({ query }, car, days);
         const account = await getAccountSnapshot(userId);
         return json({
           ...rentalQuote(
@@ -156,6 +158,7 @@ export async function clubRoute(
             "CAR_NOT_FOUND",
             "Автомобиль больше недоступен",
           );
+        await assertCatalogBookable(tx, car, days);
         const account = await getAccountSnapshotInTransaction(tx, userId);
         const quote = rentalQuote(
           car.daily_price_kopecks,
@@ -232,14 +235,30 @@ export async function clubRoute(
         .parse(new URL(request.url).searchParams.get("kind"));
       return json({
         items: await query(
-          "SELECT * FROM club_content WHERE kind=$1 ORDER BY created_at DESC,id LIMIT 200",
+          "SELECT * FROM club_content WHERE kind=$1 AND NOT source_deleted ORDER BY sort_order,created_at DESC,id LIMIT 200",
           [kind],
         ),
+        ...(kind === "car"
+          ? {
+              catalogSync:
+                (
+                  await query(
+                    "SELECT value FROM program_settings WHERE key='catalog:sync'",
+                  )
+                )[0]?.value ?? null,
+            }
+          : {}),
       });
     }
     if (request.method === "POST" || request.method === "PATCH") {
       requireOrigin(request);
       const input = await body(request, contentSchema);
+      if (input.kind === "car")
+        throw new HttpError(
+          409,
+          "CATALOG_MANAGED_ON_SITE",
+          "Автопарк редактируется в админке сайта RPM Rent",
+        );
       const row = await transaction(async (tx) => {
         const values = [
           input.kind,

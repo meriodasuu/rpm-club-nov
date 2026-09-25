@@ -66,6 +66,13 @@ export interface ClubContent {
   active: boolean;
   version: number;
   published_at: string | null;
+  source?: string | null;
+  source_deleted?: boolean;
+  source_synced_at?: string | null;
+  image_urls?: { url: string; alt: string }[];
+  available?: boolean;
+  minimum_rental_days?: number;
+  sort_order?: number;
 }
 export function moscowDate(at = new Date()) {
   return new Date(at.getTime() + 3 * 3600000).toISOString().slice(0, 10);

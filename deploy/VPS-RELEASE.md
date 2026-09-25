@@ -8,6 +8,7 @@
 
 - `app`: 512 MiB RAM, порт только `127.0.0.1:3001`; Caddy обращается к alias `rpm-club`.
 - `db`: 256 MiB RAM, PostgreSQL не публикует порт и подключён только к внутренней сети `rpm-club_backend`.
+- `catalog`: 144 MiB RAM, получает изменения автопарка из ограниченного представления БД сайта. Отдельные credentials только на чтение и подключение к `rpm-rent_backend`; установка описана в [CATALOG-SYNC.md](../docs/CATALOG-SYNC.md).
 - `worker`: 224 MiB RAM, приватная сеть БД и отдельная dual-stack сеть для исходящих Telegram-запросов. Эта сеть также подключена к app: команды входа сотрудников отправляются из web-процесса. На данном VPS Telegram требует IPv6; для обоих Node-процессов установлен --dns-result-order=ipv6first.
 - `telegram`: 144 MiB RAM, один экземпляр long polling через IPv6. Передаёт команды в app по приватной сети с webhook-секретом. Offset подтверждается только после HTTP 2xx; после рестарта непринятые команды возвращает Telegram, повторные записи отсеивает PostgreSQL. Постоянный файл offset не нужен. Не запускать второй poller или webhook одновременно.
 - База: `/opt/rpm-club/data/postgres`; фото: `/opt/rpm-club/data/media` (UID/GID 1000, внутри app `/data/media`). Не удалять при обновлении контейнеров.

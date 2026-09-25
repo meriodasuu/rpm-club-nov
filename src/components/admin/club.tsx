@@ -41,9 +41,10 @@ export function ClubContentPage({
   kind: ContentKind;
   staff: StaffView;
 }) {
-  const r = useResource<{ items: ClubContent[] }>(
-    "admin/club-content?kind=" + kind,
-  );
+  const r = useResource<{
+    items: ClubContent[];
+    catalogSync?: { at: string; total: number; published: number } | null;
+  }>("admin/club-content?kind=" + kind, kind === "car" ? 5000 : 0);
   const [editing, setEditing] = useState<Partial<ClubContent> | null>(null);
   const Icon = kind === "car" ? CarFront : kind === "route" ? Map : BookOpen;
   return (
@@ -52,17 +53,35 @@ export function ClubContentPage({
         title={names[kind]}
         subtitle={
           kind === "car"
-            ? "Автомобили и стоимость суток для заявок из Mini App"
+            ? "Автопарк синхронизируется с сайтом RPM Rent. Изменения появятся здесь автоматически."
             : "Опубликованные материалы видны участникам клуба"
         }
       >
-        {staff.role !== "viewer" && (
-          <button className="button" onClick={() => setEditing({ kind })}>
-            <Plus size={18} />
-            Добавить
-          </button>
+        {kind === "car" ? (
+          <a
+            className="button"
+            href="https://rpmrent.ru/admin/cars"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Открыть автопарк сайта
+          </a>
+        ) : (
+          staff.role !== "viewer" && (
+            <button className="button" onClick={() => setEditing({ kind })}>
+              <Plus size={18} />
+              Добавить
+            </button>
+          )
         )}
       </PageHeading>
+      {kind === "car" && r.data && (
+        <p className="small-note">
+          {r.data.catalogSync
+            ? `Последняя синхронизация: ${new Date(r.data.catalogSync.at).toLocaleString("ru-RU")}. Опубликовано: ${r.data.catalogSync.published}.`
+            : "Ожидаем первую синхронизацию с сайтом."}
+        </p>
+      )}
       {r.error ? (
         <Failure error={r.error} retry={r.refresh} />
       ) : !r.data ? (
@@ -90,7 +109,7 @@ export function ClubContentPage({
                 {kind === "wiki" && (
                   <p className="small-note">{categories[item.category]}</p>
                 )}
-                {staff.role !== "viewer" && (
+                {kind !== "car" && staff.role !== "viewer" && (
                   <button
                     className="button button-outline button-full"
                     onClick={() => setEditing(item)}
@@ -106,13 +125,9 @@ export function ClubContentPage({
       )}
       {r.data?.items.length === 0 && (
         <Empty title="Здесь пока пусто">
-          Добавьте{" "}
           {kind === "car"
-            ? "автомобиль"
-            : kind === "route"
-              ? "маршрут"
-              : "статью"}
-          , чтобы он появился в клубе.
+            ? "Добавьте автомобиль в админке сайта RPM Rent — он появится здесь автоматически."
+            : `Добавьте ${kind === "route" ? "маршрут" : "статью"}, чтобы он появился в клубе.`}
         </Empty>
       )}
       {editing && (

@@ -207,7 +207,7 @@ export async function notificationsRoute(
       if (input.startDate < moscowDate())
         throw new HttpError(422, "DRAFT_DATES", "Начало поездки уже прошло");
       const [car] = await query(
-        "SELECT id FROM club_content WHERE id=$1 AND kind='car' AND active",
+        "SELECT id FROM club_content WHERE id=$1 AND kind='car' AND active AND available",
         [input.carId],
       );
       if (!car)

@@ -83,14 +83,11 @@ function call(
   );
 }
 async function car() {
-  const r = await call("admin/club-content", admin, {
-    kind: "car",
-    title: "QA Car",
-    dailyPriceKopecks: "1000099",
-    active: true,
-  });
-  expect(r.status).toBe(200);
-  return r.json();
+  return (
+    await query<{ id: string; version: number }>(
+      "INSERT INTO club_content(kind,title,daily_price_kopecks,active) VALUES('car','QA Car',1000099,true) RETURNING id,version",
+    )
+  )[0];
 }
 async function request(
   carId: string,
@@ -135,6 +132,16 @@ suite("club content, booking and trigger integration", () => {
     await closePool();
   });
   it("enforces roles, origin, publication and request ownership", async () => {
+    expect(
+      (
+        await call("admin/club-content", admin, {
+          kind: "car",
+          title: "Forbidden duplicate",
+          dailyPriceKopecks: "100000",
+          active: true,
+        })
+      ).status,
+    ).toBe(409);
     expect((await call("admin/club-content?kind=car")).status).toBe(401);
     expect(
       (await call("admin/club-content", viewer, { kind: "car" })).status,

@@ -2997,3 +2997,17 @@ fieldset.panel-body {
   gap: 8px;
   margin-top: 8px;
 }
+.catalog-gallery {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+}
+.catalog-gallery img {
+  width: 90%;
+  flex: 0 0 90%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 12px;
+  scroll-snap-align: start;
+}

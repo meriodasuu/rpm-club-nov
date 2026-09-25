@@ -13,6 +13,7 @@ docker exec rpm-club-db-1 pg_dump -U postgres -d rpm_club --format=custom --no-o
 docker exec -i rpm-club-db-1 pg_restore --list < "$pending/database.dump" > "$pending/manifest.txt"
 tar -czf "$pending/media.tar.gz" -C /opt/rpm-club/data/media .
 cp /etc/rpm-club.env /etc/rpm-club-db.env "$pending/"
+if [ -f /etc/rpm-club-catalog.env ]; then cp /etc/rpm-club-catalog.env "$pending/"; fi
 (cd "$pending" && sha256sum database.dump media.tar.gz > SHA256SUMS)
 mv "$pending" "$root/$stamp"
 # Only this script's dated backup folders; never application data or staging imports.

@@ -53,7 +53,10 @@ export function ClubLinks() {
   );
 }
 export function RentalScreen() {
-  const r = useResource<{ items: ClubContent[] }>("club/content?kind=car");
+  const r = useResource<{ items: ClubContent[] }>(
+    "club/content?kind=car",
+    5000,
+  );
   const [selected, setSelected] = useState<ClubContent | null>(null),
     [requestVersion, setRequestVersion] = useState(0);
   const [resume, setResume] = useState<BookingDraft | null>(null),
@@ -65,8 +68,9 @@ export function RentalScreen() {
         .then(setResume)
         .catch((e) => setResumeError(e.message));
   }, []);
-  const selectedCar =
-    selected ?? r.data?.items.find((c) => c.id === resume?.car_id);
+  const selectedCar = r.data?.items.find(
+    (c) => c.id === (selected?.id ?? resume?.car_id),
+  );
   return (
     <>
       <h1>Аренда автомобиля</h1>
@@ -92,6 +96,7 @@ export function RentalScreen() {
                   className="content-cover"
                   src={car.image_url}
                   alt={car.title}
+                  loading="lazy"
                 />
               ) : (
                 <div className="content-placeholder">
@@ -102,8 +107,12 @@ export function RentalScreen() {
                 <h2>{car.title}</h2>
                 <p>{car.summary}</p>
                 <strong>{money(car.daily_price_kopecks)} / сутки</strong>
+                {car.available === false && (
+                  <p className="small-note">Временно недоступен для аренды</p>
+                )}
                 <button
                   className="button button-full"
+                  disabled={car.available === false}
                   onClick={() => {
                     setResume(null);
                     setSelected(car);
@@ -177,6 +186,7 @@ function BookingDialog({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [key] = useState(() => initial?.request_key ?? crypto.randomUUID());
+  const currentQuote = quote?.carVersion === car.version ? quote : null;
   const [draftMessage, setDraftMessage] = useState("");
   useEffect(() => {
     let current = true;
@@ -222,16 +232,16 @@ function BookingDialog({
               endDate: end,
               comment,
             };
-            if (!quote)
+            if (!currentQuote)
               setQuote(await command<Quote>("me/rental-quotes", payload));
             else {
               await command(
                 "me/rental-requests",
                 {
                   ...payload,
-                  expectedTotal: quote.totalKopecks,
-                  expectedCarVersion: quote.carVersion,
-                  expectedProgramId: quote.programId,
+                  expectedTotal: currentQuote.totalKopecks,
+                  expectedCarVersion: currentQuote.carVersion,
+                  expectedProgramId: currentQuote.programId,
                 },
                 "POST",
                 key,
@@ -247,6 +257,18 @@ function BookingDialog({
         }}
       >
         <p className="small-note">{draftMessage}</p>
+        {!!car.image_urls?.length && (
+          <div className="catalog-gallery" aria-label="Фотографии автомобиля">
+            {car.image_urls.map((image, index) => (
+              <img
+                key={image.url + index}
+                src={image.url}
+                alt={image.alt || car.title}
+                loading="lazy"
+              />
+            ))}
+          </div>
+        )}
         {car.body && <p className="preserve-lines small-note">{car.body}</p>}
         <Field label="Дата начала">
           <input
@@ -283,28 +305,32 @@ function BookingDialog({
             rows={2}
           />
         </Field>
-        {quote && (
+        {currentQuote && (
           <div className="quote-panel">
             <p>
-              {quote.days} сут. × {money(quote.dailyPriceKopecks)}
+              {currentQuote.days} сут. × {money(currentQuote.dailyPriceKopecks)}
             </p>
-            {quote.discountBps > 0 && (
+            {currentQuote.discountBps > 0 && (
               <p>
-                Скидка по карте {quote.discountBps / 100}%: −
-                {money(quote.discountKopecks)}
+                Скидка по карте {currentQuote.discountBps / 100}%: −
+                {money(currentQuote.discountKopecks)}
               </p>
             )}
-            <strong>Итого: {money(quote.totalKopecks)}</strong>
+            <strong>Итого: {money(currentQuote.totalKopecks)}</strong>
           </div>
         )}
         <p className="small-note">
-          Минимум — одни сутки. Заявка не гарантирует наличие автомобиля. Выдачу
-          и окончательные условия подтвердит менеджер.
+          Минимальный срок — {car.minimum_rental_days ?? 1} сут. Заявка не
+          гарантирует наличие автомобиля. Выдачу и окончательные условия
+          подтвердит менеджер.
         </p>
         <FormMessage error={error} />
-        <button className="button button-full" disabled={busy}>
+        <button
+          className="button button-full"
+          disabled={busy || car.available === false}
+        >
           {busy && <Spinner />}
-          {quote ? "Отправить заявку" : "Рассчитать стоимость"}
+          {currentQuote ? "Отправить заявку" : "Рассчитать стоимость"}
         </button>
       </form>
     </Dialog>

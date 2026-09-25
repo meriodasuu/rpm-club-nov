@@ -90,6 +90,33 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+  catalog:
+    <<: *runtime
+    profiles: [worker]
+    command: [node, --import, tsx, scripts/catalog-sync.ts]
+    env_file:
+      - path: /etc/rpm-club.env
+        format: raw
+      - path: /etc/rpm-club-catalog.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=96
+    networks: [backend, catalog_source]
+    depends_on:
+      db: { condition: service_healthy }
+    mem_limit: 144m
+    memswap_limit: 192m
+    cpus: 0.25
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [CMD, node, -e, "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-catalog-heartbeat','utf8'))<60000?0:1)}catch{process.exit(1)}"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
   telegram:
     <<: *runtime
     profiles: [worker]
@@ -156,3 +183,6 @@ networks:
     internal: true
   egress:
     enable_ipv6: true
+  catalog_source:
+    external: true
+    name: rpm-rent_backend

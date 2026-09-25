@@ -61,6 +61,7 @@ Worker выполняет реальные отправки. В Compose он з�
 
 - [Спецификация](docs/SPECIFICATION.md), [план](docs/IMPLEMENTATION-PLAN.md).
 - [Эксплуатация и backup/rollback](docs/OPERATIONS.md).
+- [Единый автопарк сайта и Club](docs/CATALOG-SYNC.md): сайт управляет автомобилями, Club автоматически получает изменения.
 - [HTTP API и импорт](docs/API.md), [экономический контракт](docs/CORE-CONTRACT.md).
 - [Приёмка](docs/ACCEPTANCE.md), [финальное ревью](docs/FINAL-REVIEW.md).
 - [Уведомления](docs/NOTIFICATIONS.md), [метрики и SQL](docs/METRICS.md).
