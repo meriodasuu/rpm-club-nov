@@ -57,14 +57,16 @@ services:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
       VERCEL: "0"
-      NODE_OPTIONS: --max-old-space-size=384
+      NODE_OPTIONS: --max-old-space-size=384 --dns-result-order=ipv6first
       NEXT_TELEMETRY_DISABLED: "1"
       MEDIA_DIR: /data/media
+      TELEGRAM_UPDATES_MODE: polling
     ports: ["127.0.0.1:3001:3001"]
     networks:
       web:
         aliases: [rpm-club]
       backend:
+      egress:
     volumes: [/opt/rpm-club/data/media:/data/media]
     depends_on:
       db: { condition: service_healthy }
@@ -88,6 +90,30 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+  telegram:
+    <<: *runtime
+    profiles: [worker]
+    command: [node, --import, tsx, scripts/telegram-polling.ts]
+    environment:
+      NODE_ENV: production
+      LOCAL_PREVIEW: "0"
+      TELEGRAM_UPDATES_MODE: polling
+      NODE_OPTIONS: --max-old-space-size=96 --dns-result-order=ipv6first
+    networks: [backend, egress]
+    depends_on:
+      app: { condition: service_healthy }
+    mem_limit: 144m
+    memswap_limit: 192m
+    cpus: 0.25
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [CMD, node, -e, "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-telegram-heartbeat','utf8'))<120000?0:1)}catch{process.exit(1)}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
   worker:
     <<: *runtime
     profiles: [worker]
@@ -101,14 +127,14 @@ services:
       NODE_ENV: production
       LOCAL_PREVIEW: "0"
       VERCEL: "0"
-      NODE_OPTIONS: --max-old-space-size=160
+      NODE_OPTIONS: --max-old-space-size=160 --dns-result-order=ipv6first
     networks: [backend, egress]
     depends_on:
       db: { condition: service_healthy }
     mem_limit: 224m
     memswap_limit: 320m
     cpus: 0.5
-    tmpfs: [/tmp:size=32m, mode=1777]
+    tmpfs: ["/tmp:size=32m,mode=1777"]
     stop_grace_period: 120s
     healthcheck:
       test:
@@ -128,4 +154,5 @@ networks:
     name: rpm-rent_web
   backend:
     internal: true
-  egress: {}
+  egress:
+    enable_ipv6: true

@@ -18,18 +18,18 @@ vi.mock("../src/lib/auth/session", async (original) => ({
   ...(await original<typeof import("../src/lib/auth/session")>()),
   requireStaff: async () => ({ id: "test-staff", role: "manager" }),
 }));
-async function save() {
-  vi.stubEnv("APP_URL", "http://127.0.0.1:3001");
+async function save(ctaUrl = "https://rpmrent.ru", origin = "http://127.0.0.1:3001") {
+  vi.stubEnv("APP_URL", origin);
   state.query.mockImplementation(async (sql: string) =>
     sql.startsWith("INSERT INTO offers") ? [{ id: "saved" }] : [],
   );
   return handle(
     async () =>
       (await operationsRoute(
-        new Request("http://127.0.0.1:3001/api/admin/offers", {
+        new Request(origin + "/api/admin/offers", {
           method: "POST",
           headers: {
-            origin: "http://127.0.0.1:3001",
+            origin,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -41,7 +41,7 @@ async function save() {
             start_at: "2026-09-20T00:00:00Z",
             end_at: "2026-09-21T00:00:00Z",
             cta_text: "Подробнее",
-            cta_url: "https://rpmrent.ru",
+            cta_url: ctaUrl,
             active: true,
           }),
         }),
@@ -67,6 +67,14 @@ describe("offer audience follows the published program", () => {
     const response = await save();
     expect(response.status).toBe(422);
     expect(await response.json()).toMatchObject({ code: "TIER_UNPUBLISHED" });
+    expect(state.query).not.toHaveBeenCalled();
+  });
+  it("accepts the configured Club origin but rejects a lookalike host", async () => {
+    state.codes = ["MEMBER", "DRIVE", "BLACK", "PLATINUM", "RED", "SIGNATURE"];
+    const origin = "https://club.rpm-rent.ru";
+    expect((await save(origin + "/contacts", origin)).status).toBe(200);
+    state.query.mockClear();
+    expect((await save(origin + ".example.com/contacts", origin)).status).toBe(422);
     expect(state.query).not.toHaveBeenCalled();
   });
 });

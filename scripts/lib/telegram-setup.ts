@@ -7,6 +7,8 @@ const Hook = z.object({ url: z.string(), pending_update_count: z.number().option
 const Menu = z.object({ type: z.string(), web_app: z.object({ url: z.string() }).optional() });
 
 export async function setupTelegram(env: Environment, apply: boolean, fetcher: typeof fetch = fetch) {
+  const mode = env.TELEGRAM_UPDATES_MODE ?? 'webhook';
+  if (!['webhook', 'polling'].includes(mode)) throw new Error('TELEGRAM_UPDATES_MODE must be webhook or polling');
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token || !/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new Error('Set TELEGRAM_BOT_TOKEN in .env.local');
   const username = env.TELEGRAM_BOT_USERNAME;
@@ -43,21 +45,24 @@ export async function setupTelegram(env: Environment, apply: boolean, fetcher: t
   if (apply) {
     if (hook.url && hook.url !== webhookUrl) throw new Error('An existing different webhook is configured; resolve the bot/destination before replacing it');
     // Never discard queued contacts or user commands during setup.
-    await call('setWebhook', z.literal(true), {
+    if (mode === 'polling') await call('deleteWebhook', z.literal(true), { drop_pending_updates: false });
+    else await call('setWebhook', z.literal(true), {
       url: webhookUrl, secret_token: secret, allowed_updates: ['message'],
       drop_pending_updates: false, max_connections: 10,
     });
     await call('setChatMenuButton', z.literal(true), {
-      menu_button: { type: 'web_app', text: 'RPM Club', web_app: { url: miniAppUrl } },
+      menu_button: JSON.stringify({ type: 'web_app', text: 'RPM Club', web_app: { url: miniAppUrl } }),
     });
     hook = await call('getWebhookInfo', Hook);
     menu = await call('getChatMenuButton', Menu);
-    if (hook.url !== webhookUrl || menu.type !== 'web_app' || menu.web_app?.url !== miniAppUrl) {
+    if (hook.url !== (mode === 'polling' ? '' : webhookUrl) || menu.type !== 'web_app' || menu.web_app?.url !== miniAppUrl) {
       throw new Error('Telegram settings were not confirmed; check mode reports current state');
     }
   }
   return {
     applied: apply, username: bot.username, miniAppUrl, webhookUrl,
+    updatesMode: mode,
+    updatesModeMatches: hook.url === (mode === 'polling' ? '' : webhookUrl),
     webhookMatches: hook.url === webhookUrl,
     menuMatches: menu.type === 'web_app' && menu.web_app?.url === miniAppUrl,
     mainMiniAppEnabled: bot.has_main_web_app === true,

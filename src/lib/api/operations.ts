@@ -303,6 +303,8 @@ export async function operationsRoute(
     if (
       target.protocol !== "https:" ||
       !(
+        target.origin ===
+          new URL(process.env.APP_URL ?? "https://rpmrent.ru").origin ||
         target.hostname === "rpmrent.ru" ||
         target.hostname.endsWith(".rpmrent.ru") ||
         target.hostname === "t.me"

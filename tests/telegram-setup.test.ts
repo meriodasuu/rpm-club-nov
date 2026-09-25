@@ -21,7 +21,8 @@ function provider(oldWebhook = '') {
     else if (method === 'getWebhookInfo') result = { url: webhook, pending_update_count: 0 };
     else if (method === 'getChatMenuButton') result = menu;
     else if (method === 'setWebhook') { webhook = body.url; result = true; }
-    else if (method === 'setChatMenuButton') { menu = body.menu_button; result = true; }
+    else if (method === 'deleteWebhook') { webhook = ''; result = true; }
+    else if (method === 'setChatMenuButton') { menu = JSON.parse(body.menu_button); result = true; }
     else throw new Error('Unexpected API request');
     return Response.json({ ok: true, result });
   };
@@ -29,6 +30,13 @@ function provider(oldWebhook = '') {
 }
 
 describe('Telegram deployment configuration', () => {
+  it('switches the matching webhook to polling without discarding queued commands', async () => {
+    const remote = provider('https://club.example.com/api/telegram/webhook');
+    const result = await setupTelegram({ ...env, TELEGRAM_UPDATES_MODE: 'polling' }, true, remote.fetcher);
+    expect(result).toMatchObject({ updatesMode: 'polling', updatesModeMatches: true, menuMatches: true });
+    expect(remote.calls.find(call => call.method === 'deleteWebhook')?.body).toEqual({ drop_pending_updates: false });
+    expect(remote.calls.some(call => call.method === 'setWebhook')).toBe(false);
+  });
   it('check mode cannot change Telegram settings', async () => {
     const remote = provider();
     const result = await setupTelegram(env, false, remote.fetcher);
@@ -55,8 +63,10 @@ describe('Telegram deployment configuration', () => {
       url: 'https://club.example.com/api/telegram/webhook', secret_token: env.TELEGRAM_WEBHOOK_SECRET,
       drop_pending_updates: false, allowed_updates: ['message'],
     });
-    expect(remote.calls.find(call => call.method === 'setChatMenuButton')?.body).toMatchObject({
-      menu_button: { type: 'web_app', text: 'RPM Club' },
+    const menu = remote.calls.find(call => call.method === 'setChatMenuButton')?.body.menu_button;
+    expect(typeof menu).toBe('string');
+    expect(JSON.parse(menu as string)).toMatchObject({
+      type: 'web_app', text: 'RPM Club', web_app: { url: 'https://club.example.com/onboarding' },
     });
     expect(JSON.stringify(result)).not.toContain(env.TELEGRAM_BOT_TOKEN);
     expect(JSON.stringify(result)).not.toContain(env.TELEGRAM_WEBHOOK_SECRET);

@@ -1,5 +1,5 @@
 # Append to the existing Caddyfile after DNS points to this server.
-club.rpmrent.ru {
+club.rpm-rent.ru {
   encode zstd gzip
   request_body {
     max_size 12MiB
