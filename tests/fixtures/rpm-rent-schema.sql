@@ -255,5 +255,3 @@ CREATE UNIQUE INDEX "TelegramOperator_username_key" ON public."TelegramOperator"
 
 ALTER TABLE ONLY public."Booking"
     ADD CONSTRAINT "Booking_carId_fkey" FOREIGN KEY ("carId") REFERENCES public."Car"(id) ON UPDATE CASCADE ON DELETE RESTRICT;
-
-

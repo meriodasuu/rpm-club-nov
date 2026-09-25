@@ -136,12 +136,13 @@ suite("native RPM Rent request bridge", () => {
     expect(retry).toHaveBeenCalledTimes(1);
     expect(retry.mock.calls[0]?.[0]).toBe("222");
     await native.query(
-      `UPDATE public."Booking" SET status='CONFIRMED' WHERE id=$1`,
+      `UPDATE public."Booking" SET status='CONFIRMED',"managerComment"='Private manager note' WHERE id=$1`,
       [booking.id],
     );
     await syncRentStates(peer);
     const accepted = await row(id);
     expect(accepted.status).toBe("accepted");
+    expect(accepted.staff_note).toBe("");
     const rental = (
       await query(
         "SELECT status,payment_status,current_amount_kopecks FROM rentals WHERE id=$1",

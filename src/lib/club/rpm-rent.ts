@@ -139,7 +139,11 @@ async function applyPeer(requestId: string, state: PeerState) {
         state.number,
         state.status,
         status,
-        state.note,
+        state.status === "DECLINED"
+          ? "Заявка отклонена. Свяжитесь с RPM, чтобы подобрать другой вариант."
+          : state.status === "CANCELLED"
+            ? "Заявка отменена."
+            : "",
         rentalId,
       ],
     );
