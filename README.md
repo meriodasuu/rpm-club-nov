@@ -51,7 +51,7 @@ npm run build
 
 ## Перед реальным запуском
 
-Для VPS подготовлена [инструкция Docker + PostgreSQL + Caddy](deploy/VPS-RELEASE.md). База, фотографии и worker находятся на сервере; внешние Auth/Storage не требуются. Вход сотрудников — Telegram + TOTP. Миграции: `db/migrations`.
+Для VPS подготовлена [инструкция Docker + PostgreSQL + Caddy](deploy/VPS-RELEASE.md). База, фотографии и worker находятся на сервере; внешние Auth/Storage не требуются. Вход сотрудников — [почта и пароль](docs/STAFF-PASSWORDS.md), настройка и восстановление — через личную ссылку Telegram-бота. Миграции: `db/migrations`.
 
 Нужны действующий Telegram-бот и публичный HTTPS-домен. Юридические тексты seed — тестовые; каталог и бизнес-настройки необходимо заполнить перед открытием клиентам. Реальная проверка Telegram на iPhone/Android и CRM-файла дополняет автоматические тесты.
 

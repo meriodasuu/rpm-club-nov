@@ -2,6 +2,8 @@ const actions: Record<string, string> = {
   'notifications.rule':'Изменены настройки сценария',
   'notifications.limits':'Изменены суточные лимиты',
   "staff.bot_link_login": "Вход по ссылке из бота",
+  "staff.password_login": "Вход по почте и паролю",
+  "staff.password_reset": "Изменение почты и пароля",
   "staff.login": "Вход сотрудника",
   "staff.logout": "Выход сотрудника",
   "trigger.enable": "Включено автоматическое уведомление",

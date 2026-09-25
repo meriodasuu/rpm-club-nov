@@ -23,7 +23,7 @@ async function main() {
     );
   });
   console.log(
-    "First administrator added. Open /admin in the bot and enroll the authenticator.",
+    "First administrator added. Open /admin in the bot and set the email and password.",
   );
 }
 main()

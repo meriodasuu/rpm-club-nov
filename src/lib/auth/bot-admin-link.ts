@@ -1,14 +1,13 @@
 import { z } from "zod";
 import { query, transaction, type Db } from "@/lib/db";
 import { body, HttpError, json, requireOrigin } from "@/lib/http";
+import { hashToken, randomToken, rateLimit } from "./session";
+import { hashPassword } from "./password";
 import {
-  hashToken,
-  randomToken,
-  rateLimit,
-  sessionCookie,
-  STAFF_COOKIE,
-} from "./session";
-import { prepareStaffEnrollment, verifyStaffCode } from "./telegram-staff";
+  createPasswordSession,
+  newPassword,
+  staffEmail,
+} from "./password-login";
 
 const expired = () =>
   new HttpError(
@@ -40,7 +39,9 @@ async function sendBotMessage(telegramId: string, text: string, url?: string) {
           ...(url
             ? {
                 reply_markup: {
-                  inline_keyboard: [[{ text: "Войти в админ-панель", url }]],
+                  inline_keyboard: [
+                    [{ text: "Настроить почту и пароль", url }],
+                  ],
                 },
               }
             : {}),
@@ -72,7 +73,7 @@ async function issueAndSend(tx: Db, telegramId: string) {
   if (!appUrl)
     throw new HttpError(503, "APP_URL_REQUIRED", "Вход временно недоступен.");
   const url = new URL("/admin/access", appUrl).href + "#" + code;
-  // Keep only the latest request. Neither the raw link nor the OTP is persisted.
+  // Keep only the latest request. The raw reset credential is never persisted.
   await tx.query(
     "DELETE FROM staff_bot_login_links WHERE membership_id=$1 OR expires_at<now()",
     [member.id],
@@ -81,15 +82,11 @@ async function issueAndSend(tx: Db, telegramId: string) {
     "INSERT INTO staff_bot_login_links(code_hash,membership_id,expires_at) VALUES($1,$2,now()+interval '10 minutes')",
     [hashToken(code), member.id],
   );
-  // A new link invalidates an unfinished setup from any previous link.
-  // Existing verified authenticators are never reset by link issuance.
-  await tx.query(
-    "DELETE FROM staff_telegram_mfa WHERE membership_id=$1 AND verified_at IS NULL",
-    [member.id],
-  );
   await sendBotMessage(
     telegramId,
-    "Вход в админ-панель RPM Club\n\nОткройте ссылку в браузере. При первом входе настройте Google Authenticator, затем введите 6-значный код. Ссылка действует 10 минут и используется один раз. Для работы на компьютере откройте её из Telegram на компьютере.",
+    "Почта и пароль RPM Club\n\nДля обычного входа откройте " +
+      new URL("/admin/login", appUrl).href +
+      ".\n\nКнопка ниже позволяет задать или заменить вашу почту и пароль. Ссылка действует 10 минут и используется один раз. После сохранения пароля прежние сеансы завершатся. Не пересылайте ссылку.",
     url,
   );
   await tx.query(
@@ -129,15 +126,17 @@ export async function adminBotCommand(updateId: number, telegramId: string) {
 
 export async function redeemBotAdminLink(request: Request) {
   requireOrigin(request);
-  const { code, otp } = await body(
+  const { code, credentials } = await body(
     request,
-    z.object({
-      code: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-      otp: z
-        .string()
-        .regex(/^\d{6}$/)
-        .optional(),
-    }),
+    z
+      .object({
+        code: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+        credentials: z
+          .object({ email: staffEmail, password: newPassword })
+          .strict()
+          .optional(),
+      })
+      .strict(),
   );
   const codeHash = hashToken(code);
   const [candidate] = await query<{ membership_id: string }>(
@@ -146,43 +145,55 @@ export async function redeemBotAdminLink(request: Request) {
   );
   if (!candidate) throw expired();
   await rateLimit("staff-bot-verify:" + candidate.membership_id, 10);
-  return transaction(async (tx) => {
-    // Same lock order as staff assignment: membership, then link/factor/session.
-    const [member] = await tx.query<{ id: string; telegram_id: string }>(
-      `SELECT m.id,u.telegram_id FROM admin_memberships m JOIN users u ON u.id=m.telegram_user_id
+  const passwordHash = credentials
+    ? await hashPassword(credentials.password)
+    : undefined;
+  try {
+    return await transaction(async (tx) => {
+      // Same lock order as staff assignment: membership, then link/factor/session.
+      const [member] = await tx.query<{ id: string; telegram_id: string }>(
+        `SELECT m.id,u.telegram_id FROM admin_memberships m JOIN users u ON u.id=m.telegram_user_id
        WHERE m.id=$1 AND m.active AND m.role='admin' AND u.status='active' FOR UPDATE OF m,u`,
-      [candidate.membership_id],
-    );
-    if (!member) throw expired();
-    const [link] = await tx.query<{ expires_at: Date }>(
-      "SELECT expires_at FROM staff_bot_login_links WHERE code_hash=$1 AND expires_at>clock_timestamp() FOR UPDATE",
-      [codeHash],
-    );
-    if (!link) throw expired();
-    if (!otp)
-      return json(
-        await prepareStaffEnrollment(
-          tx,
-          member.id,
-          member.telegram_id,
-          link.expires_at,
-        ),
+        [candidate.membership_id],
       );
-    await verifyStaffCode(tx, member.id, otp);
-    await tx.query("DELETE FROM staff_bot_login_links WHERE code_hash=$1", [
-      codeHash,
-    ]);
-    const token = randomToken();
-    await tx.query(
-      "INSERT INTO staff_sessions(membership_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 hour')",
-      [member.id, hashToken(token)],
-    );
-    await tx.query(
-      "INSERT INTO audit_logs(actor_id,actor_role,action,entity_type,entity_id,reason) VALUES($1,'admin','staff.bot_link_login','staff',$1,'Вход по ссылке из бота с Google Authenticator')",
-      [member.id],
-    );
-    return json({ authenticated: true }, 200, {
-      "Set-Cookie": sessionCookie(STAFF_COOKIE, token, 3600),
+      if (!member) throw expired();
+      const [link] = await tx.query<{ expires_at: Date }>(
+        "SELECT expires_at FROM staff_bot_login_links WHERE code_hash=$1 AND expires_at>clock_timestamp() FOR UPDATE",
+        [codeHash],
+      );
+      if (!link) throw expired();
+      if (!credentials || !passwordHash)
+        return json({ password_setup_required: true });
+      await tx.query(
+        `INSERT INTO staff_password_credentials(membership_id,email,password_hash) VALUES($1,$2,$3)
+       ON CONFLICT(membership_id) DO UPDATE SET email=excluded.email,password_hash=excluded.password_hash,updated_at=now()`,
+        [member.id, credentials.email, passwordHash],
+      );
+      await tx.query("UPDATE admin_memberships SET email=$2 WHERE id=$1", [
+        member.id,
+        credentials.email,
+      ]);
+      await tx.query("DELETE FROM staff_bot_login_links WHERE code_hash=$1", [
+        codeHash,
+      ]);
+      await tx.query(
+        "UPDATE staff_sessions SET revoked_at=now() WHERE membership_id=$1 AND revoked_at IS NULL",
+        [member.id],
+      );
+      return createPasswordSession(
+        tx,
+        member.id,
+        "admin",
+        "staff.password_reset",
+      );
     });
-  });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "23505")
+      throw new HttpError(
+        409,
+        "EMAIL_UNAVAILABLE",
+        "Эта почта уже используется. Укажите другую.",
+      );
+    throw error;
+  }
 }

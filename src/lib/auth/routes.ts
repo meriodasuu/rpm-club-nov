@@ -17,6 +17,7 @@ import {
 } from "./session";
 import { normalizePhone, validateTelegramInitData } from "./telegram";
 import { adminBotCommand, redeemBotAdminLink } from "./bot-admin-link";
+import { staffPasswordLogin } from "./password-login";
 
 export async function authRoute(
   request: Request,
@@ -336,14 +337,8 @@ export async function authRoute(
     });
     return json({ ok: true });
   }
-  if (request.method === "POST" && path === "auth/staff/login") {
-    requireOrigin(request);
-    throw new HttpError(
-      410,
-      "TELEGRAM_LOGIN_REQUIRED",
-      "Откройте /admin в Telegram-боте RPM Club и подтвердите вход кодом двухфакторной защиты",
-    );
-  }
+  if (request.method === "POST" && path === "auth/staff/login")
+    return staffPasswordLogin(request);
   if (request.method === "POST" && path === "auth/local") {
     requireOrigin(request);
     requireLocalPreview(request);

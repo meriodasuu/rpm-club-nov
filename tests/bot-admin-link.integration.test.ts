@@ -8,12 +8,7 @@ import {
   vi,
 } from "vitest";
 import { randomUUID } from "node:crypto";
-import { TOTP } from "otpauth";
-import {
-  prepareStaffEnrollment,
-  verifyStaffCode,
-} from "../src/lib/auth/telegram-staff";
-import { query, closePool, transaction } from "../src/lib/db";
+import { query, closePool } from "../src/lib/db";
 import { authRoute } from "../src/lib/auth/routes";
 import { handle } from "../src/lib/http";
 import { hashToken, randomToken, requireStaff } from "../src/lib/auth/session";
@@ -46,7 +41,7 @@ async function call(
       ))!,
   );
 }
-async function fixture(admin = true, enroll = true) {
+async function fixture(admin = true) {
   const telegram = String(
     BigInt("0x" + randomUUID().replaceAll("-", "").slice(0, 11)),
   );
@@ -70,30 +65,10 @@ async function fixture(admin = true, enroll = true) {
       JSON.stringify({ id: Number(telegram), first_name: "Test" }),
     ],
   );
-  let secret = "";
-  if (admin && enroll) {
-    const enrollment = await transaction((tx) =>
-      prepareStaffEnrollment(
-        tx,
-        member.id,
-        telegram,
-        new Date(Date.now() + 600000),
-      ),
-    );
-    secret = enrollment.enrollment!.manualKey;
-    await transaction((tx) =>
-      verifyStaffCode(tx, member.id, new TOTP({ secret }).generate()),
-    );
-    await query(
-      "UPDATE staff_telegram_mfa SET last_counter=-1 WHERE membership_id=$1",
-      [member.id],
-    );
-  }
   return {
     userId: user.id,
     memberId: member?.id,
     telegram,
-    secret,
     cookie: "rpm_session=" + session,
   };
 }
@@ -129,7 +104,7 @@ function mockBot() {
       ).hash.slice(1),
   };
 }
-suite("Bot links and browser TOTP login", () => {
+suite("Bot links and password setup", () => {
   beforeAll(() => {
     process.env.APP_URL = origin;
     process.env.TELEGRAM_BOT_TOKEN = botToken;
@@ -154,24 +129,31 @@ suite("Bot links and browser TOTP login", () => {
     expect(bot.messages.at(-1)!.text).toBe("Данная команда недоступна.");
     expect(bot.messages.at(-1)!.reply_markup).toBeUndefined();
   });
-  it("sends only to the authenticated administrator and requires OTP before issuing a browser session", async () => {
+  it("sets credentials without MFA, consumes a link exactly once and issues a session", async () => {
     const bot = mockBot(),
       admin = await fixture();
-    const sent = await issue(admin);
-    expect(await sent.json()).toEqual({ ok: true });
+    expect((await issue(admin)).status).toBe(200);
     expect(bot.messages[0].chat_id).toBe(admin.telegram);
+    expect(bot.messages[0].text).not.toContain("Authenticator");
     const code = bot.code();
     const before = await call("auth/staff/bot-redeem", { code });
-    expect(await before.json()).toEqual({ mfa_required: true });
+    expect(await before.json()).toEqual({ password_setup_required: true });
     expect(before.headers.get("set-cookie")).toBeNull();
-    const otp = new TOTP({ secret: admin.secret }).generate();
-    const wrong = String((Number(otp) + 1) % 1000000).padStart(6, "0");
+    const credentials = {
+      email: randomUUID() + "@example.test",
+      password: "Synthetic password for tests!",
+    };
     expect(
-      (await call("auth/staff/bot-redeem", { code, otp: wrong })).status,
-    ).toBe(401);
+      (
+        await call("auth/staff/bot-redeem", {
+          code,
+          credentials: { ...credentials, password: "short" },
+        })
+      ).status,
+    ).toBe(422);
     const attempts = await Promise.all([
-      call("auth/staff/bot-redeem", { code, otp }),
-      call("auth/staff/bot-redeem", { code, otp }),
+      call("auth/staff/bot-redeem", { code, credentials }),
+      call("auth/staff/bot-redeem", { code, credentials }),
     ]);
     expect(attempts.map((r) => r.status).sort()).toEqual([200, 401]);
     const cookie = attempts
@@ -181,9 +163,15 @@ suite("Bot links and browser TOTP login", () => {
     expect(
       (await requireStaff(new Request(origin, { headers: { cookie } }))).id,
     ).toBe(admin.memberId);
-    expect((await call("auth/staff/bot-redeem", { code, otp })).status).toBe(
-      401,
+    const [stored] = await query<{ password_hash: string }>(
+      "SELECT password_hash FROM staff_password_credentials WHERE membership_id=$1",
+      [admin.memberId],
     );
+    expect(stored.password_hash).toMatch(/^scrypt-v1\$/);
+    expect(stored.password_hash).not.toContain(credentials.password);
+    expect(
+      (await call("auth/staff/bot-redeem", { code, credentials })).status,
+    ).toBe(401);
     await query("UPDATE admin_memberships SET active=false WHERE id=$1", [
       admin.memberId,
     ]);
@@ -191,7 +179,7 @@ suite("Bot links and browser TOTP login", () => {
       requireStaff(new Request(origin, { headers: { cookie } })),
     ).rejects.toThrow();
   });
-  it("rejects expired, replaced, revoked links and repeated OTPs; rate limits attempts", async () => {
+  it("rejects replaced, expired and revoked links; rate limits inspection", async () => {
     const bot = mockBot(),
       admin = await fixture();
     await issue(admin);
@@ -201,18 +189,16 @@ suite("Bot links and browser TOTP login", () => {
     expect((await call("auth/staff/bot-redeem", { code: old })).status).toBe(
       401,
     );
-    await query(
-      "UPDATE staff_telegram_mfa SET last_counter=$2 WHERE membership_id=$1",
-      [admin.memberId, Math.floor(Date.now() / 30000)],
-    );
     expect(
       (
-        await call("auth/staff/bot-redeem", {
-          code,
-          otp: new TOTP({ secret: admin.secret }).generate(),
-        })
+        await call(
+          "auth/staff/bot-redeem",
+          { code },
+          "",
+          "https://foreign.test",
+        )
       ).status,
-    ).toBe(401);
+    ).toBe(403);
     await query("UPDATE admin_memberships SET active=false WHERE id=$1", [
       admin.memberId,
     ]);
@@ -238,78 +224,61 @@ suite("Bot links and browser TOTP login", () => {
       429,
     );
   });
-  it("enrolls an authenticator in the browser, replaces pending setup with a new link and preserves verified factors", async () => {
+  it("resets a password atomically, revokes every old session and rejects another member's email", async () => {
     const bot = mockBot(),
-      admin = await fixture(true, false);
-    await query("DELETE FROM miniapp_sessions WHERE user_id=$1", [
-      admin.userId,
-    ]);
-    expect((await issue(admin)).status).toBe(200);
-    const old = bot.code();
-    const first = await call("auth/staff/bot-redeem", { code: old });
-    expect(first.headers.get("set-cookie")).toBeNull();
-    const initial = await first.json();
-    expect(initial.enrollment.qrCode).toMatch(/^data:image\/png;base64,/);
-    expect(
-      (await (await call("auth/staff/bot-redeem", { code: old })).json())
-        .enrollment.manualKey,
-    ).toBe(initial.enrollment.manualKey);
+      admin = await fixture(),
+      other = await fixture();
+    const credentials = {
+      email: randomUUID() + "@example.test",
+      password: "Original synthetic password!",
+    };
+    await issue(admin);
+    const first = await call("auth/staff/bot-redeem", {
+      code: bot.code(),
+      credentials,
+    });
+    const cookie1 = first.headers.get("set-cookie")!.split(";")[0];
+    const second = await call("auth/staff/login", credentials);
+    const cookie2 = second.headers.get("set-cookie")!.split(";")[0];
+    await issue(other);
+    const otherCode = bot.code();
     expect(
       (
-        await call(
-          "auth/staff/bot-redeem",
-          { code: old },
-          "",
-          "https://other.invalid",
-        )
+        await call("auth/staff/bot-redeem", {
+          code: otherCode,
+          credentials: {
+            ...credentials,
+            email: credentials.email.toUpperCase(),
+          },
+        })
       ).status,
-    ).toBe(403);
-    await issue(admin);
-    const code = bot.code();
-    expect((await call("auth/staff/bot-redeem", { code: old })).status).toBe(
-      401,
-    );
-    const current = await (
-      await call("auth/staff/bot-redeem", { code })
-    ).json();
-    expect(current.enrollment.manualKey).not.toBe(initial.enrollment.manualKey);
-    const [pending] = await query<{
-      verified_at: Date | null;
-      secret_encrypted: string;
-    }>(
-      "SELECT verified_at,secret_encrypted FROM staff_telegram_mfa WHERE membership_id=$1",
-      [admin.memberId],
-    );
-    expect(pending.verified_at).toBeNull();
-    expect(pending.secret_encrypted).not.toContain(
-      current.enrollment.manualKey,
-    );
-    const otp = new TOTP({ secret: current.enrollment.manualKey }).generate();
-    const response = await call("auth/staff/bot-redeem", { code, otp });
-    expect(response.status).toBe(200);
-    const cookie = response.headers.get("set-cookie")!.split(";")[0];
+    ).toBe(409);
     expect(
-      (await requireStaff(new Request(origin, { headers: { cookie } }))).id,
-    ).toBe(admin.memberId);
+      await query(
+        "SELECT membership_id FROM staff_password_credentials WHERE membership_id=$1",
+        [other.memberId],
+      ),
+    ).toHaveLength(0);
     await issue(admin);
-    const again = await (
-      await call("auth/staff/bot-redeem", { code: bot.code() })
-    ).json();
-    expect(again).toEqual({ mfa_required: true });
-    const [verified] = await query<{
-      verified_at: Date;
-      secret_encrypted: string;
-    }>(
-      "SELECT verified_at,secret_encrypted FROM staff_telegram_mfa WHERE membership_id=$1",
-      [admin.memberId],
-    );
-    expect(verified.verified_at).not.toBeNull();
-    expect(verified.secret_encrypted).toBe(pending.secret_encrypted);
+    const password = "Replacement synthetic password!";
+    const reset = await call("auth/staff/bot-redeem", {
+      code: bot.code(),
+      credentials: { ...credentials, password },
+    });
+    expect(reset.status).toBe(200);
+    for (const cookie of [cookie1, cookie2])
+      await expect(
+        requireStaff(new Request(origin, { headers: { cookie } })),
+      ).rejects.toThrow();
+    expect((await call("auth/staff/login", credentials)).status).toBe(401);
+    expect(
+      (await call("auth/staff/login", { ...credentials, password })).status,
+    ).toBe(200);
   });
   it("does not issue links to unknown, blocked or revoked users and never enrolls without a valid link", async () => {
     const bot = mockBot();
     for (const mode of ["unknown", "blocked", "revoked"]) {
-      const user = await fixture(mode !== "unknown", false);
+      const user = await fixture(mode !== "unknown");
       if (mode === "blocked")
         await query("UPDATE users SET status='blocked' WHERE id=$1", [
           user.userId,
