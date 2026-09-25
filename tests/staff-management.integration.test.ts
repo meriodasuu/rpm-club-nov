@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { randomUUID } from "node:crypto";
 import { query, closePool } from "../src/lib/db";
 import { adminRoute } from "../src/lib/api/admin";
@@ -80,6 +88,105 @@ suite("staff management authority and entry visibility", () => {
     process.env.APP_URL = origin;
   });
   afterAll(closePool);
+  afterEach(() => vi.unstubAllGlobals());
+  it("finds an exact Telegram username, verifies it again before granting and keeps access after rename", async () => {
+    const owner = await staff(true),
+      target = await member();
+    const username = "user_" + randomUUID().replaceAll("-", "").slice(0, 12);
+    const [row] = await query<{ telegram_id: string }>(
+      "UPDATE users SET telegram_username=$2 WHERE id=$1 RETURNING telegram_id",
+      [target.id, username],
+    );
+    process.env.TELEGRAM_BOT_TOKEN = "test:staff";
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () =>
+        Response.json({
+          ok: true,
+          result: { id: Number(row.telegram_id), type: "private", username },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const lookup = await call(
+      "admin/team/candidates?username=" +
+        encodeURIComponent("@" + username.toUpperCase()),
+      owner.cookie,
+    );
+    expect(lookup.status).toBe(200);
+    expect(
+      (await lookup.json()).items.map((x: { id: string }) => x.id),
+    ).toEqual([target.id]);
+    expect(
+      (await call("admin/team/candidates?username=user", owner.cookie)).status,
+    ).toBe(200);
+    expect(
+      (await call("admin/team/candidates?username=%25", owner.cookie)).status,
+    ).toBe(422);
+    expect(
+      (
+        await call("admin/team/telegram", owner.cookie, {
+          userId: target.id,
+          active: true,
+          expectedUsername: "@" + username,
+        })
+      ).status,
+    ).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await query(
+      "UPDATE users SET telegram_username='renamed_account' WHERE id=$1",
+      [target.id],
+    );
+    expect((await (await call("me", target.cookie)).json()).staff_access).toBe(
+      true,
+    );
+  });
+  it("does not grant by a stale username or when Telegram cannot verify the account", async () => {
+    const owner = await staff(true),
+      target = await member();
+    const [row] = await query<{ telegram_id: string }>(
+      "UPDATE users SET telegram_username='old_nickname' WHERE id=$1 RETURNING telegram_id",
+      [target.id],
+    );
+    process.env.TELEGRAM_BOT_TOKEN = "test:staff";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({
+          ok: true,
+          result: {
+            id: Number(row.telegram_id),
+            type: "private",
+            username: "new_nickname",
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    expect(
+      (
+        await call("admin/team/telegram", owner.cookie, {
+          userId: target.id,
+          active: true,
+          expectedUsername: "old_nickname",
+        })
+      ).status,
+    ).toBe(409);
+    fetchMock.mockRejectedValue(new Error("offline"));
+    expect(
+      (
+        await call("admin/team/telegram", owner.cookie, {
+          userId: target.id,
+          active: true,
+          expectedUsername: "old_nickname",
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      await query(
+        "SELECT id FROM admin_memberships WHERE telegram_user_id=$1",
+        [target.id],
+      ),
+    ).toHaveLength(0);
+  });
   it("hides the entry for ordinary members, shows after owner grant and hides after revoke", async () => {
     const owner = await staff(true),
       target = await member();

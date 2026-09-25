@@ -68,6 +68,11 @@ export async function authRoute(
         "MEMBER_BLOCKED",
         "Доступ к клубу приостановлен. Свяжитесь с RPM.",
       );
+    if (user)
+      await query(
+        "UPDATE users SET telegram_username=$2,updated_at=now() WHERE id=$1",
+        [user.id, profile.username ?? null],
+      );
     const token = randomToken();
     await query(
       "INSERT INTO miniapp_sessions(token_hash,user_id,telegram_id,telegram_profile,expires_at) VALUES($1,$2,$3,$4,now()+interval '24 hours')",

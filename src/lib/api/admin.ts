@@ -11,6 +11,10 @@ import {
 import { query, transaction, type Db } from "@/lib/db";
 import { normalizePhone } from "@/lib/auth/telegram";
 import {
+  normalizeUsername,
+  verifyTelegramUsername,
+} from "@/lib/auth/telegram-username";
+import {
   getAccountSnapshot,
   getProgram,
   getHistory,
@@ -638,6 +642,33 @@ export async function adminRoute(
   if (request.method === "GET" && path === "admin/team/candidates") {
     await staffManager();
     await rateLimit("staff-search:" + staff.id, 20);
+    if (url.searchParams.has("username")) {
+      const username = normalizeUsername(
+        url.searchParams.get("username") ?? "",
+      );
+      const candidates = await query<{ id: string; telegram_id: string }>(
+        `SELECT u.id,u.name,u.phone,u.telegram_id,u.telegram_username,m.active staff_active,m.role staff_role,m.can_manage_staff
+         FROM users u LEFT JOIN admin_memberships m ON m.telegram_user_id=u.id
+         WHERE lower(u.telegram_username)=$1 AND u.status='active' AND u.telegram_id IS NOT NULL LIMIT 5`,
+        [username],
+      );
+      const items = [];
+      for (const candidate of candidates) {
+        try {
+          await verifyTelegramUsername(candidate.telegram_id, username);
+          const item = { ...candidate } as Partial<typeof candidate>;
+          delete item.telegram_id;
+          items.push(item);
+        } catch (error) {
+          if (
+            !(error instanceof HttpError) ||
+            error.code !== "USERNAME_CHANGED"
+          )
+            throw error;
+        }
+      }
+      return json({ items });
+    }
     let phone: string;
     try {
       phone = normalizePhone(
@@ -663,8 +694,28 @@ export async function adminRoute(
     await staffManager();
     const input = await body(
       request,
-      z.object({ userId: idSchema, active: z.boolean() }).strict(),
+      z
+        .object({
+          userId: idSchema,
+          active: z.boolean(),
+          expectedUsername: z.string().max(33).optional(),
+        })
+        .strict(),
     );
+    let verifiedTelegramId: string | undefined;
+    if (input.active && input.expectedUsername !== undefined) {
+      const [candidate] = await query<{ telegram_id: string | null }>(
+        "SELECT telegram_id FROM users WHERE id=$1",
+        [input.userId],
+      );
+      if (!candidate?.telegram_id)
+        throw new HttpError(404, "USER_NOT_FOUND", "Пользователь не найден");
+      await verifyTelegramUsername(
+        candidate.telegram_id,
+        normalizeUsername(input.expectedUsername),
+      );
+      verifiedTelegramId = candidate.telegram_id;
+    }
     await transaction(async (tx) => {
       await lockStaffManager(tx, staff.id);
       const [before] = await tx.query(
@@ -701,6 +752,12 @@ export async function adminRoute(
           409,
           "USER_NOT_ELIGIBLE",
           "Пользователь должен завершить регистрацию в боте и иметь активный аккаунт",
+        );
+      if (verifiedTelegramId && user.telegram_id !== verifiedTelegramId)
+        throw new HttpError(
+          409,
+          "USER_CHANGED",
+          "Учётная запись изменилась. Повторите поиск.",
         );
       if (!input.active && !before)
         throw new HttpError(

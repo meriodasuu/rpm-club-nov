@@ -40,12 +40,20 @@ export function TeamPage() {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [success, setSuccess] = useState("");
-  async function update(userId: string, active: boolean) {
+  async function update(
+    userId: string,
+    active: boolean,
+    expectedUsername?: string,
+  ) {
     setBusy(true);
     setMessage("");
     setSuccess("");
     try {
-      await command("admin/team/telegram", { userId, active });
+      await command("admin/team/telegram", {
+        userId,
+        active,
+        expectedUsername,
+      });
       setSuccess(
         active
           ? "Администратор назначен. Теперь он может отправить боту /admin и настроить Google Authenticator при первом входе по ссылке."
@@ -73,9 +81,8 @@ export function TeamPage() {
           </div>
           <div className="panel-body form-stack">
             <p className="small-note">
-              Пользователь должен открыть @rpmclub_bot, подтвердить номер и
-              завершить регистрацию. Найдите его по номеру телефона и назначьте
-              доступ.
+              Пользователь должен зарегистрироваться в @rpmclub_bot. Введите его
+              Telegram-ник, проверьте найденный аккаунт и назначьте доступ.
             </p>
             <form
               className="form-stack"
@@ -88,8 +95,8 @@ export function TeamPage() {
                 setCandidates(null);
                 try {
                   const found = await api<{ items: Candidate[] }>(
-                    "admin/team/candidates?phone=" +
-                      encodeURIComponent(String(form.get("phone"))),
+                    "admin/team/candidates?username=" +
+                      encodeURIComponent(String(form.get("username"))),
                   );
                   setCandidates(found.items);
                 } catch (error) {
@@ -99,14 +106,16 @@ export function TeamPage() {
                 }
               }}
             >
-              <Field label="Номер телефона">
+              <Field label="Telegram-ник">
                 <input
-                  name="phone"
+                  name="username"
                   disabled={busy}
-                  type="tel"
+                  type="text"
                   required
-                  maxLength={30}
-                  placeholder="79210611842"
+                  maxLength={33}
+                  placeholder="@wthtwn"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   autoComplete="off"
                   onChange={() => setCandidates(null)}
                 />
@@ -119,8 +128,8 @@ export function TeamPage() {
             </form>
             {candidates?.length === 0 && (
               <p>
-                Пользователь не найден. Проверьте номер и попросите его
-                завершить регистрацию в боте.
+                Пользователь не найден. Проверьте Telegram-ник и попросите его
+                открыть Club через бота и завершить регистрацию.
               </p>
             )}
             {candidates?.map((candidate) => (
@@ -128,9 +137,8 @@ export function TeamPage() {
                 <div>
                   <strong>{candidate.name}</strong>
                   <p>
-                    {candidate.phone}
                     {candidate.telegram_username
-                      ? ` · @${candidate.telegram_username}`
+                      ? `@${candidate.telegram_username}`
                       : ""}
                   </p>
                 </div>
@@ -143,7 +151,13 @@ export function TeamPage() {
                   <button
                     className="button"
                     disabled={busy}
-                    onClick={() => void update(candidate.id, true)}
+                    onClick={() =>
+                      void update(
+                        candidate.id,
+                        true,
+                        candidate.telegram_username ?? undefined,
+                      )
+                    }
                   >
                     <UserRoundPlus size={18} />
                     Назначить администратором
@@ -176,11 +190,9 @@ export function TeamPage() {
                 <td>{String(row.name)}</td>
                 <td>
                   {String(
-                    row.phone ??
-                      row.email ??
-                      (row.telegram_username
-                        ? `@${row.telegram_username}`
-                        : "Telegram"),
+                    row.telegram_username
+                      ? `@${row.telegram_username}`
+                      : (row.email ?? "Telegram"),
                   )}
                 </td>
                 <td>

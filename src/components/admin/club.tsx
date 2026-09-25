@@ -365,6 +365,24 @@ export function RentalRequestsPage({ staff }: { staff: StaffView }) {
                   сут.
                 </p>
                 <strong>{money(item.total_kopecks)}</strong>
+                {item.rpm_rent_managed && (
+                  <p className="small-note">
+                    {item.rpm_rent_number
+                      ? `RPM Rent · заявка #${item.rpm_rent_number}`
+                      : "Передаём в RPM Rent…"}
+                  </p>
+                )}
+                {item.rpm_rent_sync_error && (
+                  <p className="form-error" role="alert">
+                    {item.rpm_rent_sync_error}
+                  </p>
+                )}
+                {item.rpm_rent_notification_pending &&
+                  item.status !== "cancelled" && (
+                    <p className="small-note">
+                      Уведомление менеджерам ожидает отправки.
+                    </p>
+                  )}
                 {item.pickup_at && (
                   <p className="small-note">
                     Выдача:{" "}
@@ -389,7 +407,27 @@ export function RentalRequestsPage({ staff }: { staff: StaffView }) {
                   <p className="small-note">Ответ: {item.staff_note}</p>
                 )}
               </div>
-              {item.status === "pending" && staff.role !== "viewer" ? (
+              {item.rpm_rent_managed ? (
+                <div>
+                  <a
+                    className="button"
+                    href={
+                      item.rpm_rent_id
+                        ? `https://rpmrent.ru/admin/bookings?booking=${encodeURIComponent(item.rpm_rent_id)}`
+                        : "https://rpmrent.ru/admin/bookings"
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Открыть в RPM Rent
+                  </a>
+                  {item.rental_id && (
+                    <Link href="/admin/rentals" className="text-link">
+                      Отметить оплату аренды →
+                    </Link>
+                  )}
+                </div>
+              ) : item.status === "pending" && staff.role !== "viewer" ? (
                 <button className="button" onClick={() => setSelected(item)}>
                   Обработать
                 </button>

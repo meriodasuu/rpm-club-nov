@@ -142,7 +142,13 @@ export function RentalRequests() {
       <FormMessage error={error} />
       {r.data.items.map((item) => (
         <article className="rental-request" key={item.id}>
-          <span className="eyebrow">{labels[item.status]}</span>
+          <span className="eyebrow">
+            {item.rpm_rent_status === "IN_PROGRESS"
+              ? "В обработке"
+              : item.rpm_rent_status === "COMPLETED"
+                ? "Поездка завершена"
+                : labels[item.status]}
+          </span>
           <h3>{item.car_name}</h3>
           <p>
             {date(item.start_date)} — {date(item.end_date)}

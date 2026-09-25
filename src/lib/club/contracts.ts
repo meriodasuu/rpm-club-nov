@@ -123,6 +123,12 @@ export function rentalQuote(
   };
 }
 export interface RentalRequest {
+  rpm_rent_managed?: boolean;
+  rpm_rent_id?: string | null;
+  rpm_rent_number?: number | null;
+  rpm_rent_status?: string | null;
+  rpm_rent_sync_error?: string | null;
+  rpm_rent_notification_pending?: boolean;
   id: string;
   user_id: string;
   car_id: string;

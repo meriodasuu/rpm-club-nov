@@ -301,7 +301,7 @@ export async function clubRoute(
       .parse(new URL(request.url).searchParams.get("status") ?? "pending");
     return json({
       items: await query(
-        "SELECT r.*,u.name,u.phone,trip.pickup_at,to_char(r.start_date,'YYYY-MM-DD') start_date,to_char(r.end_date,'YYYY-MM-DD') end_date FROM rental_requests r JOIN users u ON u.id=r.user_id LEFT JOIN rentals trip ON trip.id=r.rental_id WHERE ($1='all' OR r.status=$1) ORDER BY r.created_at DESC,r.id LIMIT 200",
+        "SELECT r.*,u.name,u.phone,trip.pickup_at,to_char(r.start_date,'YYYY-MM-DD') start_date,to_char(r.end_date,'YYYY-MM-DD') end_date,r.rpm_rent_managed AND (NOT EXISTS(SELECT 1 FROM rpm_rent_deliveries d WHERE d.request_id=r.id) OR EXISTS(SELECT 1 FROM rpm_rent_deliveries d WHERE d.request_id=r.id AND d.delivered_at IS NULL)) AS rpm_rent_notification_pending FROM rental_requests r JOIN users u ON u.id=r.user_id LEFT JOIN rentals trip ON trip.id=r.rental_id WHERE ($1='all' OR r.status=$1) ORDER BY r.created_at DESC,r.id LIMIT 200",
         [status],
       ),
     });
@@ -328,6 +328,12 @@ export async function clubRoute(
           [decision[1]],
         );
         if (!row) throw new HttpError(404, "NOT_FOUND", "Заявка не найдена");
+        if (row.rpm_rent_managed)
+          throw new HttpError(
+            409,
+            "RPM_RENT_MANAGED",
+            "Обработайте эту заявку в общем списке RPM Rent. Статус обновится автоматически.",
+          );
         if (row.status === input.status) return row;
         if (row.status !== "pending")
           throw new HttpError(409, "REQUEST_STATE", "Заявка уже обработана");

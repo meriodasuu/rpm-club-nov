@@ -90,6 +90,38 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+  requests:
+    <<: *runtime
+    profiles: [worker]
+    command: [node, --import, tsx, scripts/rpm-rent-requests.ts]
+    env_file:
+      - path: /etc/rpm-club.env
+        format: raw
+      - path: /etc/rpm-club-requests.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=96 --dns-result-order=ipv6first
+    networks: [backend, catalog_source, egress]
+    depends_on:
+      db: { condition: service_healthy }
+    mem_limit: 144m
+    memswap_limit: 192m
+    cpus: 0.25
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-requests-heartbeat','utf8'))<180000?0:1)}catch{process.exit(1)}",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
   catalog:
     <<: *runtime
     profiles: [worker]
@@ -112,7 +144,12 @@ services:
     stop_grace_period: 15s
     healthcheck:
       test:
-        [CMD, node, -e, "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-catalog-heartbeat','utf8'))<60000?0:1)}catch{process.exit(1)}"]
+        [
+          CMD,
+          node,
+          -e,
+          "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-catalog-heartbeat','utf8'))<60000?0:1)}catch{process.exit(1)}",
+        ]
       interval: 20s
       timeout: 5s
       retries: 3
@@ -136,7 +173,12 @@ services:
     stop_grace_period: 15s
     healthcheck:
       test:
-        [CMD, node, -e, "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-telegram-heartbeat','utf8'))<120000?0:1)}catch{process.exit(1)}"]
+        [
+          CMD,
+          node,
+          -e,
+          "const fs=require('node:fs');try{process.exit(Date.now()-Number(fs.readFileSync('/tmp/rpm-telegram-heartbeat','utf8'))<120000?0:1)}catch{process.exit(1)}",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
