@@ -432,6 +432,31 @@ suite("HTTP identity, roles, imports and campaign boundaries", () => {
       bonus_available: "2200",
     });
   });
+  it("explains unavailable campaigns before sending without creating a campaign", async () => {
+    const a = await staff();
+    for (const [active, start, end, reason] of [
+      [false, -1, 1, "не опубликовано"],
+      [true, 1, 2, "ещё не началось"],
+      [true, -2, -1, "завершилось"],
+    ] as const) {
+      const [offer] = await query<{ id: string }>(
+        `INSERT INTO offers(title,description,minimum_tier,start_at,end_at,cta_text,cta_url,active,created_by) VALUES('Campaign availability','Test','MEMBER',now()+$1*interval '1 day',now()+$2*interval '1 day','Open','https://rpmrent.ru',$3,'app-test') RETURNING id`,
+        [start, end, active],
+      );
+      const path = `admin/offers/${offer.id}/campaigns`;
+      const preview = await (await call(path, a.cookie)).json();
+      expect(preview.available).toBe(false);
+      expect(preview.blocked_reason).toContain(reason);
+      const response = await call(path, a.cookie, { expectedVersion: 1 });
+      expect(response.status).toBe(409);
+      expect(JSON.stringify(await response.json())).toContain(reason);
+      expect(
+        await query("SELECT id FROM offer_campaigns WHERE offer_id=$1", [
+          offer.id,
+        ]),
+      ).toHaveLength(0);
+    }
+  });
   it("refuses stale campaign versions and suppresses edited offers at delivery", async () => {
     const a = await staff(),
       u = await member();

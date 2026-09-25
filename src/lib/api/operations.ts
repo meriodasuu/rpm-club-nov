@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { offerCampaignBlockReason } from "@/lib/offers/availability";
 import { saveMedia, loadMedia } from "@/lib/media";
 import sharp from "sharp";
 import { query, transaction } from "@/lib/db";
@@ -390,10 +391,13 @@ export async function operationsRoute(
       `SELECT u.id FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.marketing_consent AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.achieved_tier=ANY($1::text[])`,
       [allowed],
     );
+    const blockedReason = offerCampaignBlockReason(offer);
     if (request.method === "GET")
       return json({
         recipients: audience.length,
         offer_version: offer.version,
+        available: !blockedReason,
+        blocked_reason: blockedReason,
       });
     if (request.method === "POST") {
       requireOrigin(request);
@@ -401,16 +405,8 @@ export async function operationsRoute(
         request,
         z.object({ expectedVersion: z.number().int() }),
       );
-      if (
-        !offer.active ||
-        new Date(offer.start_at).getTime() > Date.now() ||
-        new Date(offer.end_at).getTime() <= Date.now()
-      )
-        throw new HttpError(
-          409,
-          "OFFER_INACTIVE",
-          "Рассылка доступна для действующего предложения",
-        );
+      if (blockedReason)
+        throw new HttpError(409, "OFFER_INACTIVE", blockedReason);
       if (expectedVersion !== offer.version)
         throw new HttpError(409, "VERSION_CONFLICT", "Предложение изменилось");
       const result = await transaction(async (tx) => {
@@ -427,16 +423,9 @@ export async function operationsRoute(
             "VERSION_CONFLICT",
             "Предложение изменилось. Проверьте аудиторию заново.",
           );
-        if (
-          !locked.active ||
-          new Date(locked.start_at).getTime() > Date.now() ||
-          new Date(locked.end_at).getTime() <= Date.now()
-        )
-          throw new HttpError(
-            409,
-            "OFFER_INACTIVE",
-            "Предложение уже недоступно",
-          );
+        const lockedReason = offerCampaignBlockReason(locked);
+        if (lockedReason)
+          throw new HttpError(409, "OFFER_INACTIVE", lockedReason);
         const audience = await tx.query<{ id: string }>(
           `SELECT u.id FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.marketing_consent AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.achieved_tier=ANY($1::text[])`,
           [TIER_CODES.slice(TIER_CODES.indexOf(locked.minimum_tier))],

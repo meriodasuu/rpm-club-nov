@@ -17,6 +17,7 @@ import { PageHeading, type Row } from "./tables";
 import type { StaffView } from "./shell";
 import { money, date, rublesInput } from "@/lib/ui";
 import { tierName, type TierRule } from "@/lib/loyalty/rules";
+import { offerStatusLabel } from "@/lib/offers/availability";
 export function OffersPage({ staff }: { staff: StaffView }) {
   const resource = useResource<{ items: Row[] }>("admin/offers"),
     [edit, setEdit] = useState<Row | null>(null),
@@ -49,7 +50,12 @@ export function OffersPage({ staff }: { staff: StaffView }) {
               </div>
               <div className="offer-admin-body">
                 <span className="eyebrow">
-                  {o.active ? "АКТИВНО" : "СКРЫТО"} · {date(String(o.end_at))}
+                  {offerStatusLabel({
+                    active: o.active === true,
+                    start_at: String(o.start_at),
+                    end_at: String(o.end_at),
+                  })}{" "}
+                  · {date(String(o.end_at))}
                 </span>
                 <h2>{String(o.title)}</h2>
                 <p>{String(o.subtitle)}</p>
@@ -95,7 +101,14 @@ export function OffersPage({ staff }: { staff: StaffView }) {
         />
       )}{" "}
       {campaign && (
-        <CampaignDialog offer={campaign} onClose={() => setCampaign(null)} />
+        <CampaignDialog
+          offer={campaign}
+          onClose={() => setCampaign(null)}
+          onEdit={() => {
+            setEdit(campaign);
+            setCampaign(null);
+          }}
+        />
       )}
     </>
   );
@@ -302,13 +315,18 @@ function OfferEditor({
 function CampaignDialog({
   offer,
   onClose,
+  onEdit,
 }: {
   offer: Row;
   onClose: () => void;
+  onEdit: () => void;
 }) {
-  const r = useResource<{ recipients: number; offer_version: number }>(
-      `admin/offers/${offer.id}/campaigns`,
-    ),
+  const r = useResource<{
+      recipients: number;
+      offer_version: number;
+      available: boolean;
+      blocked_reason: string | null;
+    }>(`admin/offers/${offer.id}/campaigns`),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
@@ -327,12 +345,21 @@ function CampaignDialog({
       {r.data && (
         <strong className="stat-value">{r.data.recipients} получателей</strong>
       )}
-      <FormMessage error={error || r.error?.message} success={success} />
+      <FormMessage
+        error={error || r.error?.message || r.data?.blocked_reason || undefined}
+        success={success}
+      />
+      {r.data?.blocked_reason && (
+        <button className="button button-outline button-full" onClick={onEdit}>
+          Редактировать предложение
+        </button>
+      )}
       <button
         className="button button-full"
-        disabled={busy || !r.data || !!success}
+        disabled={busy || !r.data?.available || !!success}
         onClick={async () => {
           setBusy(true);
+          setError("");
           try {
             const result = await command<{ recipients: number }>(
               `admin/offers/${offer.id}/campaigns`,
