@@ -8,10 +8,12 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Gift,
   Info,
   Plus,
 } from "lucide-react";
 import {
+  ApiError,
   command,
   Dialog,
   Field,
@@ -19,6 +21,7 @@ import {
   Spinner,
 } from "@/components/shared";
 import { money } from "@/lib/ui";
+import { rentalPriceAdjustments } from "@/lib/roulette/quote";
 import { moscowDate, type ClubContent } from "@/lib/club/contracts";
 import {
   calendarDays,
@@ -44,7 +47,38 @@ type Quote = {
   discountBps: number;
   carVersion: number;
   programId: string;
+  offerId?: string | null;
+  offerVersion?: number | null;
+  offerTitle?: string | null;
+  offerDiscountBps?: number | null;
+  discountSource?: "offer" | "club";
+  quoteVersion: string;
+  awardDiscountKopecks: string;
+  awards: {
+    id: string;
+    title: string;
+    terms?: string;
+    claim_code?: string;
+    effect_type: string;
+    effect_value: number;
+    effectKopecks: string;
+  }[];
+  availableAwards: {
+    id: string;
+    title: string;
+    terms: string;
+    claim_code: string;
+    effect_type: string;
+    effect_value: number;
+  }[];
 };
+
+export function visibleRentalAwards(
+  quote: Pick<Quote, "availableAwards"> | null,
+  previous: Quote["availableAwards"],
+) {
+  return quote ? quote.availableAwards : previous;
+}
 
 function carName(car: ClubContent) {
   const brand = car.vehicle_specs?.brand;
@@ -391,11 +425,18 @@ function RentalCalendar({
 export function BookingDialog({
   car,
   initial,
+  offer,
   onClose,
   onDone,
 }: {
   car: ClubContent;
   initial?: BookingDraft | null;
+  offer?: {
+    id: string;
+    title: string;
+    discount_bps: number;
+    version: number;
+  } | null;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -416,6 +457,11 @@ export function BookingDialog({
       : shiftDate(start, minimumDays),
   );
   const [comment, setComment] = useState(initial?.comment ?? "");
+  const [awardIds, setAwardIds] = useState<string[]>([]);
+  const [availableAwards, setAvailableAwards] = useState<
+    Quote["availableAwards"]
+  >([]);
+  const [awardNotice, setAwardNotice] = useState("");
   const [showComment, setShowComment] = useState(!!initial?.comment);
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -428,8 +474,9 @@ export function BookingDialog({
     quote?: Quote;
     error?: string;
   } | null>(null);
-  const signature = `${car.id}:${car.version}:${start}:${end}:${retry}`;
+  const signature = `${car.id}:${car.version}:${start}:${end}:${awardIds.join(",")}:${retry}`;
   const currentResult = result?.signature === signature ? result : null;
+  const offerId = offer?.id;
   const quote =
     currentResult?.quote?.carVersion === car.version
       ? currentResult.quote
@@ -444,19 +491,36 @@ export function BookingDialog({
         carId: car.id,
         startDate: start,
         endDate: end,
+        awardIds,
+        ...(offerId ? { offerId } : {}),
       })
         .then((value) => {
-          if (current) setResult({ signature, quote: value });
+          if (current) {
+            setResult({ signature, quote: value });
+            setAvailableAwards(value.availableAwards);
+          }
         })
         .catch((e: Error) => {
-          if (current) setResult({ signature, error: e.message });
+          if (current) {
+            setResult({ signature, error: e.message });
+            if (
+              e instanceof ApiError &&
+              e.code === "AWARD_UNAVAILABLE" &&
+              awardIds.length
+            ) {
+              setAwardNotice(
+                "Список призов обновлён. Выберите доступный приз.",
+              );
+              setAwardIds([]);
+            }
+          }
         });
     }, 350);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [car.id, signature, start, end, submitted]);
+  }, [car.id, signature, start, end, submitted, offerId, awardIds]);
 
   useEffect(() => {
     if (submitted || busy) return;
@@ -527,6 +591,14 @@ export function BookingDialog({
                   expectedTotal: quote.totalKopecks,
                   expectedCarVersion: quote.carVersion,
                   expectedProgramId: quote.programId,
+                  expectedQuoteVersion: quote.quoteVersion,
+                  awardIds,
+                  ...(offer
+                    ? {
+                        offerId: offer.id,
+                        expectedOfferVersion: quote.offerVersion,
+                      }
+                    : {}),
                 },
                 "POST",
                 key,
@@ -541,6 +613,12 @@ export function BookingDialog({
             }
           }}
         >
+          {offer && (
+            <div className="offer-booking-note">
+              <strong>{offer.title}</strong>
+              <span>Специальная цена предложения будет учтена в расчёте.</span>
+            </div>
+          )}
           <div className="rental-car-summary">
             {car.image_url ? (
               <img src={car.image_url} alt={car.title} />
@@ -567,6 +645,99 @@ export function BookingDialog({
               setError("");
             }}
           />
+          {!offer && !!visibleRentalAwards(quote, availableAwards).length && (
+            <section
+              className="rental-prize-picker"
+              aria-label="Призы для этой аренды"
+            >
+              <div className="rental-prize-heading">
+                <span className="rental-prize-icon" aria-hidden="true">
+                  <Gift size={18} />
+                </span>
+                <div>
+                  <h3>Призы</h3>
+                  <p>К аренде можно применить один приз вместо скидки по карте</p>
+                </div>
+              </div>
+              <div className="rental-prize-list">
+                <article
+                  className={`rental-prize-option${awardIds.length ? "" : " selected"}`}
+                >
+                  <label>
+                    <input
+                      type="radio"
+                      name="rental-award"
+                      checked={!awardIds.length}
+                      disabled={busy}
+                      onChange={() => {
+                        setAwardNotice("");
+                        setAwardIds([]);
+                      }}
+                    />
+                    <span className="rental-prize-copy">
+                      <span className="rental-prize-title">Без приза</span>
+                    </span>
+                  </label>
+                </article>
+                {visibleRentalAwards(quote, availableAwards).map((award) => {
+                  const selected = awardIds.includes(award.id);
+                  const benefit =
+                    award.effect_type === "percent"
+                      ? `−${award.effect_value / 100}%`
+                      : award.effect_type === "free_day"
+                        ? `${award.effect_value} сут.`
+                        : award.effect_type === "fixed"
+                          ? "Скидка"
+                          : award.effect_type === "wash"
+                            ? "Мойка"
+                            : award.effect_type === "upgrade"
+                              ? "Улучшение"
+                              : award.effect_type === "bonus"
+                                ? "Бонусы"
+                                : "Подарок";
+                  return (
+                    <article
+                      className={`rental-prize-option${selected ? " selected" : ""}`}
+                      key={award.id}
+                    >
+                      <label>
+                        <input
+                          type="radio"
+                          name="rental-award"
+                          checked={selected}
+                          disabled={busy}
+                          onChange={(event) => {
+                            setAwardNotice("");
+                            if (event.target.checked) setAwardIds([award.id]);
+                          }}
+                        />
+                        <span className="rental-prize-copy">
+                          <span className="rental-prize-title">
+                            {award.title}
+                          </span>
+                        </span>
+                        <span className="rental-prize-benefit">{benefit}</span>
+                      </label>
+                      {award.terms && (
+                        <details className="rental-prize-terms">
+                          <summary>Условия приза</summary>
+                          <p>{award.terms}</p>
+                        </details>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+              {awardNotice && (
+                <p className="rental-prize-note" role="status">
+                  {awardNotice}
+                </p>
+              )}
+              <p className="rental-prize-note">
+                Выбранный приз заменяет скидку по карте и будет виден менеджеру в заявке.
+              </p>
+            </section>
+          )}
           <div
             className="rental-total"
             aria-live="polite"
@@ -582,10 +753,27 @@ export function BookingDialog({
                 </div>
                 {quote.discountBps > 0 && (
                   <div className="rental-discount">
-                    <span>Скидка по карте {quote.discountBps / 100}%</span>
+                    <span>
+                      {offer && quote.discountSource === "offer"
+                        ? `Скидка по предложению ${quote.discountBps / 100}%`
+                        : offer
+                          ? `Применена большая скидка ${quote.discountBps / 100}%`
+                          : `Скидка по карте ${quote.discountBps / 100}%`}
+                    </span>
                     <span>−{money(quote.discountKopecks)}</span>
                   </div>
                 )}
+                {rentalPriceAdjustments(quote.awards).map((award, index) => (
+                  <div className="rental-discount" key={award.id}>
+                    <span>
+                      Приз {index + 1}: {award.title}
+                      {award.effect_type === "percent"
+                        ? ` (${award.effect_value / 100}%)`
+                        : ""}
+                    </span>
+                    <span>−{money(award.effectKopecks)}</span>
+                  </div>
+                ))}
                 <div className="rental-total-amount">
                   <strong>Итого</strong>
                   <strong>{money(quote.totalKopecks)}</strong>

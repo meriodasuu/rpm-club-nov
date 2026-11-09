@@ -13,13 +13,10 @@ vi.mock("../src/lib/auth/session", async (original) => ({
     .mockResolvedValue({ id: "media-test", role: "manager" }),
 }));
 
-async function upload(bytes: Uint8Array) {
+async function upload(bytes: Uint8Array, type = "image/jpeg") {
   vi.stubEnv("APP_URL", "http://127.0.0.1:3001");
   const form = new FormData();
-  form.set(
-    "file",
-    new File([new Uint8Array(bytes)], "image.jpg", { type: "image/jpeg" }),
-  );
+  form.set("file", new File([new Uint8Array(bytes)], "image", { type }));
   return handle(
     async () =>
       (await operationsRoute(
@@ -40,25 +37,26 @@ describe("invalid admin images", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("MEDIA_DIR", root);
     try {
-      const bytes = await sharp({
-        create: { width: 16, height: 16, channels: 3, background: "red" },
-      })
-        .png()
-        .toBuffer();
-      const response = await upload(bytes);
-      expect(response.status).toBe(200);
-      const { url } = await response.json();
-      expect(url).toMatch(/^\/api\/media\/[a-f0-9-]{36}\.webp$/);
-      const stored = await operationsRoute(
-        new Request("http://127.0.0.1:3001" + url),
-        url.slice(5),
-      );
-      expect(stored?.status).toBe(200);
-      expect(stored?.headers.get("content-type")).toBe("image/webp");
-      expect(
-        (await sharp(Buffer.from(await stored!.arrayBuffer())).metadata())
-          .format,
-      ).toBe("webp");
+      for (const format of ["jpeg", "png", "webp"] as const) {
+        const source = sharp({
+          create: { width: 16, height: 16, channels: 3, background: "red" },
+        });
+        const bytes = await source.toFormat(format).toBuffer();
+        const response = await upload(bytes, `image/${format}`);
+        expect(response.status).toBe(200);
+        const { url } = await response.json();
+        expect(url).toMatch(/^\/api\/media\/[a-f0-9-]{36}\.webp$/);
+        const stored = await operationsRoute(
+          new Request("http://127.0.0.1:3001" + url),
+          url.slice(5),
+        );
+        expect(stored?.status).toBe(200);
+        expect(stored?.headers.get("content-type")).toBe("image/webp");
+        expect(
+          (await sharp(Buffer.from(await stored!.arrayBuffer())).metadata())
+            .format,
+        ).toBe("webp");
+      }
       const missing = await handle(
         async () =>
           (await operationsRoute(

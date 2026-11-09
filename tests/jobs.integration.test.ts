@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { query, closePool } from '../src/lib/db';
 import { expandOutbox, claimDelivery, finishDelivery, failDelivery, processJobs } from '../src/lib/jobs';
 import { ProviderError, retryDelay } from '../src/lib/jobs/provider';
+import { reserveNotificationSlot } from '../src/lib/notifications/budget';
 const suite = process.env.DATABASE_URL?.includes('rpm_club_test') ? describe : describe.skip;
 async function fixture(notify = true) {
   const telegram = BigInt(`0x${randomBytes(6).toString('hex')}`).toString();
@@ -110,6 +111,48 @@ suite('leased outbox deliveries against isolated PostgreSQL entities', () => {
     const g = await fixture(); await query(`UPDATE loyalty_accounts SET member_since=now()+interval '1 hour' WHERE user_id=$1`, [g.userId]);
     await processJobs({ eventIds: [g.eventId], maintenance: false });
     expect((await query<{ status: string }>(`SELECT status FROM deliveries WHERE event_id=$1 AND channel='telegram'`, [g.eventId]))[0].status).toBe('suppressed');
+  });
+  it('sends an explicitly launched offer campaign even after the daily marketing slot is used', async () => {
+    const f = await fixture();
+    vi.stubEnv('APP_URL', 'https://club.example');
+    const [offer] = await query<{ id: string; version: number }>(
+      `INSERT INTO offers(title,description,minimum_tier,start_at,end_at,cta_text,cta_url,active,created_by)
+       VALUES('Campaign delivery QA','Test offer','MEMBER',now()-interval '1 hour',now()+interval '1 day','Open','https://rpmrent.ru',true,'jobs-test') RETURNING id,version`,
+    );
+    const [campaign] = await query<{ id: string }>(
+      `INSERT INTO offer_campaigns(offer_id,offer_version,audience,requested_by,offer_snapshot)
+       SELECT id,version,jsonb_build_array($2::text),'jobs-test',to_jsonb(o) FROM offers o WHERE id=$1 RETURNING id`,
+      [offer.id, f.userId],
+    );
+    await query(
+      'INSERT INTO offer_campaign_recipients(campaign_id,offer_id,user_id) VALUES($1,$2,$3)',
+      [campaign.id, offer.id, f.userId],
+    );
+    await query(
+      `UPDATE outbox_events SET event_type='RPM_DROP',aggregate_id=$2,payload=$3 WHERE id=$1`,
+      [
+        f.eventId,
+        offer.id,
+        JSON.stringify({
+          offer_id: offer.id,
+          offer_version: offer.version,
+          campaign_id: campaign.id,
+        }),
+      ],
+    );
+    expect(
+      await reserveNotificationSlot(f.telegram, 'marketing', 'lifecycle:prior'),
+    ).toBe(true);
+
+    expect(
+      await processJobs({ eventIds: [f.eventId], maintenance: false }),
+    ).toMatchObject({ succeeded: 1, retry: 0, dead: 0 });
+    const requestBody = JSON.parse(
+      vi.mocked(fetch).mock.calls[0][1]!.body as string,
+    );
+    expect(requestBody.reply_markup.inline_keyboard[0][0].web_app.url).toBe(
+      `https://club.example/offers/${offer.id}`,
+    );
   });
   it('sends BOT_WELCOME without an activated member account', async () => {
     const [event] = await query<{ id: string }>(`INSERT INTO outbox_events(event_key,event_type,aggregate_id,payload) VALUES($1,'BOT_WELCOME','987654321',$2) RETURNING id`, [randomUUID(), JSON.stringify({ telegram_id: '987654321' })]);

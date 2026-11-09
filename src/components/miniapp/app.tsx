@@ -23,8 +23,15 @@ import {
   CarFront,
 } from "lucide-react";
 import { ContactsScreen } from "./contacts";
+import { RouletteScreen } from "./roulette";
+import { GiveawaysScreen } from "./giveaways";
+import { LeaderboardScreen } from "./leaderboard";
 import { CardCarousel } from "./cards";
-import { NotificationActivity, NotificationPreferences } from "./notifications";
+import {
+  MarketingPreferences,
+  NotificationActivity,
+  NotificationPreferences,
+} from "./notifications";
 export { MembershipCard } from "./cards";
 import {
   ClubLinks,
@@ -41,7 +48,6 @@ import {
   Loading,
   Failure,
   Empty,
-  FormMessage,
   TierBadge,
   command,
   useResource,
@@ -52,7 +58,12 @@ type Account = AccountSnapshot & {
   staff_access?: boolean;
 };
 type Offer = {
+  personal?: boolean;
   id: string;
+  offer_type: "catalog" | "free";
+  car_id: string | null;
+  discount_bps: number | null;
+  version: number;
   title: string;
   subtitle: string;
   car_name: string;
@@ -69,7 +80,7 @@ type Offer = {
 const navigation = [
   { href: "/home", label: "Главная", icon: Home },
   { href: "/club", label: "Club", icon: Layers3 },
-  { href: "/history", label: "История", icon: Clock3 },
+  { href: "/rent", label: "Аренда авто", icon: CarFront },
   { href: "/profile", label: "Профиль", icon: UserRound },
 ];
 function track(name: string, entityId?: string) {
@@ -127,7 +138,10 @@ export function MiniApp({
     | "rent"
     | "routes"
     | "wiki"
-    | "conditions";
+    | "conditions"
+    | "roulette"
+    | "giveaways"
+    | "rating";
 }) {
   const {
     data: account,
@@ -194,12 +208,17 @@ export function MiniApp({
           </Link>
         </header>
         <div className="mini-content">
-          {["rent", "routes", "wiki", "conditions"].includes(screen) && (
+          {["rent", "routes", "wiki", "conditions", "roulette", "giveaways", "rating"].includes(
+            screen,
+          ) && (
             <Link className="mini-back-link" href="/home">
               ← На главную
             </Link>
           )}
           {screen === "rent" && <RentalScreen />}
+          {screen === "roulette" && <RouletteScreen />}
+          {screen === "giveaways" && <GiveawaysScreen />}
+          {screen === "rating" && <LeaderboardScreen />}
           {screen === "routes" && <RoutesScreen />}
           {(screen === "wiki" || screen === "conditions") && (
             <WikiScreen
@@ -210,29 +229,37 @@ export function MiniApp({
           {screen === "home" && <HomeScreen account={account} />}
           {screen === "club" && <ClubScreen account={account} />}
           {screen === "history" && <HistoryScreen />}
-          {screen === "profile" && (
-            <ProfileScreen account={account} refresh={refresh} />
-          )}
+          {screen === "profile" && <ProfileScreen account={account} />}
         </div>
         <nav className="bottom-nav" aria-label="Основная навигация">
-          {navigation.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              aria-current={pathname === n.href ? "page" : undefined}
-              className={pathname === n.href ? "active" : ""}
-            >
-              <n.icon size={23} strokeWidth={1.65} />
-              <span>{n.label}</span>
-            </Link>
-          ))}
+          {navigation.map((n) => {
+            const active =
+              pathname === n.href ||
+              (pathname === "/history" && n.href === "/profile");
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-current={active ? "page" : undefined}
+                className={active ? "active" : ""}
+              >
+                <n.icon size={23} strokeWidth={1.65} />
+                <span>{n.label}</span>
+              </Link>
+            );
+          })}
         </nav>
       </main>
     </div>
   );
 }
 function HomeScreen({ account }: { account: Account }) {
-  const { data: offers } = useResource<{ items: Offer[] }>("offers");
+  const {
+    data: offers,
+    error: offersError,
+    loading: offersLoading,
+    refresh: refreshOffers,
+  } = useResource<{ items: Offer[] }>("offers");
   const currentTier = account.program.tiers.find(
     (t) => t.code === account.tier,
   )!;
@@ -241,20 +268,23 @@ function HomeScreen({ account }: { account: Account }) {
       <p className="home-greeting">
         {account.user.name.split(" ")[0]}, рады видеть вас
       </p>
-      <h1 className="home-title">Куда отправимся?</h1>
-      <section className="home-rental" aria-label="Ваша следующая поездка">
-        <CarFront size={36} strokeWidth={1.4} aria-hidden="true" />
-        <h2>Автомобиль для ваших планов</h2>
-        <p>
-          Выберите автомобиль и даты. Менеджер подтвердит заявку, оплата — на
-          месте.
-        </p>
-        <div className="home-actions">
-          <Link className="button button-wide" href="/rent">
-            Выбрать автомобиль <ArrowRight size={22} />
+      <section className="home-roulette-banner" aria-label="Рулетка призов">
+        <img
+          src="/images/roulette-home-reference.png"
+          alt="Рулетка призов RPM Club"
+        />
+        <div className="home-roulette-actions">
+          <Link className="button" href="/club/roulette">
+            Крутить рулетку <ArrowRight size={22} aria-hidden="true" />
           </Link>
-          <Link className="button button-outline" href="/rent#my-requests">
-            Мои заявки
+          <Link
+            className="button button-outline"
+            href="/club/roulette#my-awards"
+          >
+            Мои призы
+          </Link>
+          <Link className="button button-outline" href="/club/giveaways">
+            Розыгрыши клуба
           </Link>
         </div>
       </section>
@@ -274,12 +304,39 @@ function HomeScreen({ account }: { account: Account }) {
         </div>
         <ChevronRight size={20} aria-hidden="true" />
       </Link>
+      <h1 className="home-title">Куда отправимся?</h1>
+      <section className="home-rental" aria-label="Ваша следующая поездка">
+        <CarFront size={36} strokeWidth={1.4} aria-hidden="true" />
+        <h2>Автомобиль для ваших планов</h2>
+        <p>
+          Выберите автомобиль и даты. Менеджер подтвердит заявку, оплата — на
+          месте.
+        </p>
+        <div className="home-actions">
+          <Link className="button button-wide" href="/rent">
+            Выбрать автомобиль <ArrowRight size={22} />
+          </Link>
+          <Link className="button button-outline" href="/rent#my-requests">
+            Мои заявки
+          </Link>
+        </div>
+      </section>
       <ClubLinks />
-      {offers?.items[0] && (
-        <section className="home-offer" aria-label="Предложение для вас">
-          <h2>Предложение для вас</h2>
-          <OfferCard offer={offers.items[0]} />
-        </section>
+      {offersLoading ? (
+        <Loading />
+      ) : offersError ? (
+        <Failure error={offersError} retry={refreshOffers} />
+      ) : (
+        !!offers?.items.length && (
+          <section className="home-offer" aria-label="Предложения для вас">
+            <h2>Предложения для вас</h2>
+            <div className="club-offers-list">
+              {offers.items.map((offer) => (
+                <OfferCard key={offer.id} offer={offer} />
+              ))}
+            </div>
+          </section>
+        )
       )}
       <div className="mini-note">Ваша следующая поездка начинается здесь.</div>
     </>
@@ -298,7 +355,7 @@ function OfferCard({ offer }: { offer: Offer }) {
       />
       <div className="offer-content">
         <span className="offer-label">
-          <b>RPM</b> DROP
+          <b>RPM</b> {offer.personal ? "ДЛЯ ВАС" : "DROP"}
         </span>
         <div>
           <h3>{offer.subtitle || offer.title}</h3>
@@ -312,13 +369,21 @@ function OfferCard({ offer }: { offer: Offer }) {
   );
 }
 function ClubScreen({ account }: { account: Account }) {
-  const { data: offers } = useResource<{ items: Offer[] }>("offers");
+  const {
+    data: offers,
+    error: offersError,
+    loading: offersLoading,
+    refresh: refreshOffers,
+  } = useResource<{ items: Offer[] }>("offers");
   return (
     <>
       <h1>RPM Club</h1>
       <p className="screen-subtitle">Ваша карта, уровни и привилегии</p>
       <CardCarousel account={account} />
       <div className="club-membership-actions">
+        <Link className="button button-outline" href="/club/rating">
+          Рейтинг клуба
+        </Link>
         <Link className="button button-outline" href="/conditions">
           Условия программы
         </Link>
@@ -326,14 +391,22 @@ function ClubScreen({ account }: { account: Account }) {
           Пригласить друга
         </Link>
       </div>
-      {!!offers?.items.length && (
-        <section className="club-offers">
-          <h2>Доступно участникам</h2>
-          {offers.items.map((o) => (
-            <OfferCard key={o.id} offer={o} />
-          ))}
-        </section>
-      )}
+      <section className="club-offers" aria-label="Предложения клуба">
+        <h2>Предложения клуба</h2>
+        {offersLoading ? (
+          <Loading />
+        ) : offersError ? (
+          <Failure error={offersError} retry={refreshOffers} />
+        ) : offers?.items.length ? (
+          <>
+            {offers.items.map((o) => (
+              <OfferCard key={o.id} offer={o} />
+            ))}
+          </>
+        ) : (
+          <p>Сейчас нет доступных предложений.</p>
+        )}
+      </section>
       <p className="small-note">
         Достигнутый статус сохраняется. Предоставление привилегий и наличие
         автомобиля подтвердит менеджер RPM.
@@ -419,13 +492,7 @@ function RentalHistory() {
     </div>
   );
 }
-function ProfileScreen({
-  account,
-  refresh,
-}: {
-  account: Account;
-  refresh: () => Promise<void>;
-}) {
+function ProfileScreen({ account }: { account: Account }) {
   const router = useRouter();
   const { data: referral, error: referralError } = useResource<{
     code: string;
@@ -434,21 +501,12 @@ function ProfileScreen({
     program: ReferralProgram | null;
     awards: ReferralAward[];
   }>("me/referral");
-  const [copied, setCopied] = useState(false),
-    [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
   async function invite() {
     if (referral) {
       await navigator.clipboard.writeText(referral.url ?? referral.code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    }
-  }
-  async function marketing(value: boolean) {
-    try {
-      await command("me/preferences", { marketingConsent: value }, "PATCH");
-      await refresh();
-    } catch (e) {
-      setError((e as Error).message);
     }
   }
   return (
@@ -467,6 +525,11 @@ function ProfileScreen({
         />
         <span className="muted">С нами с {date(account.member_since)}</span>
       </div>
+      <Link href="/history" className="profile-history-link">
+        <Clock3 size={20} aria-hidden="true" />
+        <span>История аренд и заявок</span>
+        <ChevronRight size={18} aria-hidden="true" />
+      </Link>
       <dl className="profile-details">
         <div>
           <dt>Member ID</dt>
@@ -582,6 +645,7 @@ function ProfileScreen({
         </section>
       ) : null}
       <NotificationPreferences />
+      <MarketingPreferences />
       <div className="profile-links">
         <Link href="/contacts">
           <span>Связаться с RPM</span>
@@ -599,17 +663,7 @@ function ProfileScreen({
           <span>Обработка персональных данных</span>
           <ChevronRight size={18} />
         </Link>
-        <label>
-          <span>Предложения, маршруты и погода</span>
-          <input
-            type="checkbox"
-            className="switch"
-            checked={account.user.marketing_consent}
-            onChange={(e) => void marketing(e.target.checked)}
-          />
-        </label>
       </div>
-      <FormMessage error={error} />
       <button
         className="text-link logout"
         onClick={async () => {
@@ -624,14 +678,36 @@ function ProfileScreen({
   );
 }
 export function OfferDetail({ id }: { id: string }) {
-  const { data: offer, error, loading } = useResource<Offer>("offers/" + id);
+  const {
+    data: offer,
+    error,
+    loading,
+    refresh,
+  } = useResource<Offer>("offers/" + id);
   if (loading) return <Loading />;
+  if (error && "status" in error && error.status === 404)
+    return (
+      <main className="mini-shell offer-detail">
+        <div className="mini-content">
+          <h1>Предложение недоступно</h1>
+          <p>Срок действия завершился или предложение отозвано.</p>
+          <Link href="/club" className="button">
+            Вернуться в Club
+          </Link>
+        </div>
+      </main>
+    );
   if (error || !offer)
-    return <Failure error={error ?? new Error("Предложение не найдено")} />;
+    return (
+      <Failure
+        error={error ?? new Error("Предложение не найдено")}
+        retry={refresh}
+      />
+    );
   return (
     <main className="mini-shell offer-detail">
       <header className="mini-header">
-        <Link href="/home" className="text-link">
+        <Link href="/club" className="text-link">
           ← В клуб
         </Link>
         <Brand small />
@@ -639,11 +715,11 @@ export function OfferDetail({ id }: { id: string }) {
       <img
         className="offer-hero"
         src={offer.image_url || "/images/taycan.png"}
-        alt={offer.car_name}
+        alt={offer.car_name || offer.title}
       />
       <div className="mini-content">
         <span className="offer-label">
-          <b>RPM</b> DROP
+          <b>RPM</b> {offer.personal ? "ДЛЯ ВАС" : "DROP"}
         </span>
         <h1>{offer.title}</h1>
         <p className="screen-subtitle">{offer.subtitle}</p>
@@ -655,19 +731,34 @@ export function OfferDetail({ id }: { id: string }) {
           </div>
         )}
         <div className="offer-meta">
-          <TierBadge tier={offer.minimum_tier + "+"} />
+          {offer.personal ? (
+            <span>Для вас</span>
+          ) : (
+            <TierBadge tier={offer.minimum_tier + "+"} />
+          )}
           <span>До {date(offer.end_at)}</span>
         </div>
-        <a
-          className="button button-wide"
-          href={offer.cta_url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={() => track("offer_clicked", offer.id)}
-        >
-          {offer.cta_text}
-          <ArrowUpRight size={19} />
-        </a>
+        {offer.offer_type === "catalog" && offer.car_id ? (
+          <Link
+            className="button button-wide"
+            href={`/rent?offer=${encodeURIComponent(offer.id)}`}
+            onClick={() => track("offer_clicked", offer.id)}
+          >
+            {offer.cta_text || "Оформить аренду со скидкой"}
+            <ArrowRight size={19} />
+          </Link>
+        ) : (
+          <a
+            className="button button-wide"
+            href={offer.cta_url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => track("offer_clicked", offer.id)}
+          >
+            {offer.cta_text}
+            <ArrowUpRight size={19} />
+          </a>
+        )}
         <p className="small-note">
           Условия и наличие автомобиля подтвердит менеджер RPM.
         </p>

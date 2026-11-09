@@ -130,6 +130,8 @@ export function rentalQuote(
   };
 }
 export interface RentalRequest {
+  offer_id?: string | null;
+  roulette_award_id?: string | null;
   rpm_rent_managed?: boolean;
   rpm_rent_id?: string | null;
   rpm_rent_number?: number | null;
@@ -145,6 +147,7 @@ export interface RentalRequest {
   days: number;
   gross_kopecks: string;
   discount_kopecks: string;
+  roulette_effect_kopecks?: string;
   total_kopecks: string;
   discount_bps: number;
   status: "pending" | "accepted" | "declined" | "cancelled";

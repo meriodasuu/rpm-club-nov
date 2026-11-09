@@ -56,6 +56,8 @@ const rowSchema = z.object({
   status: z.enum(["accepted", "completed", "in_progress", "cancelled"]),
   paymentStatus: z.enum(["paid", "unpaid", "partial", "refunded"]),
   qualifiedAt: z.iso.datetime().optional(),
+  completedAt: z.iso.datetime({ offset: true }).optional(),
+  paidAt: z.iso.datetime({ offset: true }).optional(),
 });
 export type NormalizedRental = z.infer<typeof rowSchema>;
 export function normalizeRentalRow(
@@ -93,6 +95,8 @@ export function normalizeRentalRow(
         ? "paid"
         : ""),
     qualifiedAt: str("qualified_at") || undefined,
+    completedAt: str("completed_at") || undefined,
+    paidAt: str("paid_at") || undefined,
   });
   if (row.startDate > row.endDate)
     throw new Error("Дата окончания раньше начала");

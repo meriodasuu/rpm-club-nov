@@ -25,11 +25,13 @@ import {
   reverseTransaction,
   adjustRental,
   cancelRental,
+  adjustRentalTurnover,
   changeTier,
   publishProgram,
   TIER_CODES,
 } from "@/lib/loyalty";
 import { requireStaff, rateLimit } from "@/lib/auth/session";
+import { conductGiveaway } from "@/lib/giveaways";
 import {
   body,
   HttpError,
@@ -115,6 +117,88 @@ export async function adminRoute(
     .parse(url.searchParams.get("page") ?? 0);
   const offset = page * 50;
   if (request.method === "GET" && path === "admin/me") return json(staff);
+  if (request.method === "GET" && path === "admin/giveaways") {
+    return json({ items: await query(`SELECT g.*,
+      (SELECT count(*)::int FROM giveaway_participants p WHERE p.giveaway_id=g.id) participant_count,
+      (SELECT count(*)::int FROM giveaway_winners w WHERE w.giveaway_id=g.id AND w.status='issued') issued_count
+      FROM giveaways g ORDER BY g.created_at DESC LIMIT 100`) });
+  }
+  const giveawayDetail = path.match(/^admin\/giveaways\/([a-f0-9-]{36})$/);
+  if (request.method === "GET" && giveawayDetail) {
+    const [item] = await query("SELECT * FROM giveaways WHERE id=$1", [idSchema.parse(giveawayDetail[1])]);
+    if (!item) return notFound();
+    const [participants, winners, prizes] = await Promise.all([
+      query("SELECT p.*,u.name,u.public_member_id FROM giveaway_participants p JOIN users u ON u.id=p.user_id WHERE p.giveaway_id=$1 ORDER BY p.qualified_amount_kopecks DESC,u.name", [item.id]),
+      query("SELECT w.*,u.name,u.public_member_id FROM giveaway_winners w JOIN users u ON u.id=w.user_id WHERE w.giveaway_id=$1 ORDER BY w.position", [item.id]),
+      query("SELECT position,prize_snapshot,ttl_days FROM giveaway_prizes WHERE giveaway_id=$1 ORDER BY position", [item.id]),
+    ]);
+    return json({ item, participants, winners, prizes });
+  }
+  if (request.method === "POST" && path === "admin/giveaways") {
+    await manager();
+    const input = await body(request, z.object({
+      title: z.string().trim().min(2).max(120), description: z.string().trim().max(5000).default(""), rules: z.string().trim().min(2).max(10000),
+      imageUrl: z.union([z.literal(""), z.string().url().max(2000), z.string().regex(/^\/api\/media\/[a-f0-9-]{36}\.webp$/).max(2000)]).default(""), imageAlt: z.string().trim().max(300).optional().default(""),
+      minimumTier: z.enum(TIER_CODES), minimumAmountKopecks: z.string().regex(/^\d{1,15}$/), winnerCount: z.number().int().min(1).max(1000),
+      startsAt: z.iso.datetime({ offset:true }), endsAt: z.iso.datetime({ offset:true }),
+      prizes: z.array(z.object({
+        title:z.string().trim().min(2).max(100), summary:z.string().trim().min(1).max(220), terms:z.string().trim().min(1).max(10000),
+        imageUrl:z.union([z.literal(""), z.string().url().max(2000), z.string().regex(/^\/api\/media\/[a-f0-9-]{36}\.webp$/).max(2000)]).default(""), imageAlt:z.string().trim().max(300).optional().default(""),
+        effectType:z.enum(["percent","fixed","free_day","wash","upgrade","info"]), effectValue:z.number().int().min(0).max(1_000_000_000), ttlDays:z.number().int().min(1).max(365),
+      })).min(1),
+    }).refine(value => Date.parse(value.startsAt) < Date.parse(value.endsAt), { message:"Дата окончания должна быть позже начала", path:["endsAt"] }));
+    const prizes = input.prizes;
+    if (prizes.length !== input.winnerCount) throw new HttpError(422,"GIVEAWAY_PRIZES","Количество призов должно совпадать с количеством победителей");
+    for (const prize of prizes) {
+      if ((prize.effectType === "percent" && (prize.effectValue < 1 || prize.effectValue > 9999)) || (["fixed","free_day"].includes(prize.effectType) && prize.effectValue < 1) || (["wash","upgrade","info"].includes(prize.effectType) && prize.effectValue !== 0)) throw new HttpError(422,"GIVEAWAY_PRIZE","Некорректный эффект приза");
+    }
+    const created = await transaction(async tx=>{
+      const [giveaway] = await tx.query(`INSERT INTO giveaways(title,description,rules,image_url,image_alt,minimum_tier,minimum_amount_kopecks,winner_count,starts_at,ends_at,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`, [input.title,input.description,input.rules,input.imageUrl,input.imageAlt,input.minimumTier,input.minimumAmountKopecks,input.winnerCount,input.startsAt,input.endsAt,staff.id]);
+      for (const [position,prize] of prizes.entries()) await tx.query("INSERT INTO giveaway_prizes(giveaway_id,position,prize_snapshot,ttl_days) VALUES($1,$2,$3,$4)",[giveaway.id,position+1,JSON.stringify({title:prize.title,summary:prize.summary,terms:prize.terms,image_url:prize.imageUrl,image_alt:prize.imageAlt,effect_type:prize.effectType,effect_value:prize.effectValue,min_days:1,max_days:90,min_total_kopecks:0,car_ids:[]}),prize.ttlDays]);
+      return giveaway;
+    });
+    await query("INSERT INTO audit_logs(actor_id,actor_role,action,entity_type,entity_id,reason,after_data) VALUES($1,$2,'giveaway.create','giveaway',$3,'Создание черновика',$4)", [staff.id,staff.role,created.id,JSON.stringify(created)]);
+    return json(created, 201);
+  }
+  const giveawayPublish = path.match(/^admin\/giveaways\/([a-f0-9-]{36})\/publish$/);
+  if (request.method === "POST" && giveawayPublish) {
+    await manager();
+    return json(await transaction(async tx => {
+      const [before] = await tx.query<{ status:string; starts_at:Date; ends_at:Date; minimum_tier:string }>('SELECT status,starts_at,ends_at,minimum_tier FROM giveaways WHERE id=$1 FOR UPDATE',[giveawayPublish[1]]);
+      if (!before) return notFound();
+      if (before.status !== 'draft') throw new HttpError(409,'GIVEAWAY_STATE','Опубликовать можно только черновик');
+      if (new Date(before.ends_at) <= new Date()) throw new HttpError(422,'GIVEAWAY_PERIOD','Период розыгрыша уже завершён');
+      const [prizes] = await tx.query<{ count:number; winner_count:number }>("SELECT count(p.position)::int count,g.winner_count FROM giveaways g LEFT JOIN giveaway_prizes p ON p.giveaway_id=g.id WHERE g.id=$1 GROUP BY g.winner_count",[giveawayPublish[1]]);
+      if (!prizes || prizes.count!==prizes.winner_count) throw new HttpError(422,'GIVEAWAY_PRIZES','Настройте отдельный приз для каждого места');
+      const [published] = await tx.query("UPDATE giveaways SET status='published',published_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1 AND status='draft' RETURNING *",[giveawayPublish[1]]);
+      await tx.query(`INSERT INTO outbox_events(event_key,event_type,user_id,aggregate_id,account_version,payload)
+        SELECT 'giveaway:'||$1||':'||a.user_id,'GIVEAWAY_PUBLISHED',a.user_id,$1,a.account_version,
+          jsonb_build_object('title',$2,'endsAt',$3)
+        FROM loyalty_accounts a JOIN loyalty_tiers actual ON actual.code=a.achieved_tier JOIN loyalty_tiers required ON required.code=$4
+        JOIN users u ON u.id=a.user_id WHERE actual.rank>=required.rank AND u.status='active'
+        ON CONFLICT(event_key) DO NOTHING`,[giveawayPublish[1],published.title,published.ends_at,published.minimum_tier]);
+      await tx.query("INSERT INTO audit_logs(actor_id,actor_role,action,entity_type,entity_id,reason,before_data,after_data) VALUES($1,$2,'giveaway.publish','giveaway',$3,'Публикация условий',$4,$5)",[staff.id,staff.role,giveawayPublish[1],JSON.stringify(before),JSON.stringify(published)]);
+      return published;
+    }));
+  }
+  const giveawayCancel = path.match(/^admin\/giveaways\/([a-f0-9-]{36})\/cancel$/);
+  if (request.method === "POST" && giveawayCancel) {
+    await manager();
+    const input = await body(request, z.object({ reason }));
+    return json(await transaction(async tx => {
+      const [before] = await tx.query<{ status:string }>("SELECT status FROM giveaways WHERE id=$1 FOR UPDATE", [giveawayCancel[1]]);
+      if (!before) return notFound();
+      if (!['draft','published'].includes(before.status)) throw new HttpError(409,'GIVEAWAY_STATE','Нельзя отменить проведённый розыгрыш');
+      const [changed] = await tx.query("UPDATE giveaways SET status='cancelled',cancelled_at=clock_timestamp(),cancellation_reason=$2,updated_at=clock_timestamp() WHERE id=$1 RETURNING *",[giveawayCancel[1],input.reason]);
+      await tx.query("INSERT INTO audit_logs(actor_id,actor_role,action,entity_type,entity_id,reason,before_data,after_data) VALUES($1,$2,'giveaway.cancel','giveaway',$3,$4,$5,$6)",[staff.id,staff.role,giveawayCancel[1],input.reason,JSON.stringify(before),JSON.stringify(changed)]);
+      return changed;
+    }));
+  }
+  const giveawayDraw = path.match(/^admin\/giveaways\/([a-f0-9-]{36})\/draw$/);
+  if (request.method === "POST" && giveawayDraw) {
+    await manager();
+    return json(await conductGiveaway(idSchema.parse(giveawayDraw[1]), staff.id));
+  }
   if (path === "admin/referral-program" && request.method === "GET")
     return json({ program: await getReferralProgram() });
   if (path === "admin/referral-program" && request.method === "POST") {
@@ -217,6 +301,9 @@ export async function adminRoute(
     });
   }
   if (request.method === "GET" && path === "admin/rentals") {
+    const view = z
+      .enum(["all", "needs", "confirmed", "completed", "cancelled"])
+      .parse(url.searchParams.get("view") ?? "all");
     const status = z
       .enum(["accepted", "completed", "in_progress", "cancelled"])
       .optional()
@@ -232,8 +319,8 @@ export async function adminRoute(
       .trim();
     const [from, to] = dateFilters(url);
     const items = await query(
-      `SELECT r.*,to_char(r.start_date,'YYYY-MM-DD') start_date,to_char(r.end_date,'YYYY-MM-DD') end_date,u.name customer_name,count(*) OVER()::int total_count FROM rentals r JOIN users u ON u.id=r.user_id WHERE ($1::text IS NULL OR r.status=$1) AND ($2::text IS NULL OR r.payment_status=$2) AND ($3='' OR r.source=$3) AND ($4::date IS NULL OR r.end_date>=$4::date) AND ($5::date IS NULL OR r.end_date<=$5::date) ORDER BY r.created_at DESC,r.id LIMIT 50 OFFSET $6`,
-      [status ?? null, payment ?? null, source, from, to, offset],
+      `SELECT r.*,to_char(r.start_date,'YYYY-MM-DD') start_date,to_char(r.end_date,'YYYY-MM-DD') end_date,u.name customer_name,count(*) OVER()::int total_count FROM rentals r JOIN users u ON u.id=r.user_id WHERE ($1::text IS NULL OR r.status=$1) AND ($2::text IS NULL OR r.payment_status=$2) AND ($3='' OR r.source=$3) AND ($4::date IS NULL OR r.end_date>=$4::date) AND ($5::date IS NULL OR r.end_date<=$5::date) AND ($7='all' OR ($7='confirmed' AND r.status IN ('accepted','in_progress')) OR r.status=$7) ORDER BY r.created_at DESC,r.id LIMIT 50 OFFSET $6`,
+      [status ?? null, payment ?? null, source, from, to, offset, view],
     );
     return json({ items, page, total: items[0]?.total_count ?? 0 });
   }
@@ -275,20 +362,29 @@ export async function adminRoute(
       request,
       z.object({
         userId: idSchema,
-        externalRentalId: z.string().min(1).max(128),
+        externalRentalId: z.string().min(1).max(128).optional(),
         carName: z.string().min(1).max(200),
         startDate: z.iso.date(),
         endDate: z.iso.date(),
         pickupAt: z.iso.datetime({ offset: true }).optional(),
+        completedAt: z.iso.datetime({ offset: true }).optional(),
+        paidAt: z.iso.datetime({ offset: true }).optional(),
         amountKopecks: amount,
         status: z.enum(["accepted", "completed", "in_progress", "cancelled"]),
         paymentStatus: z.enum(["paid", "unpaid", "partial", "refunded"]),
         reason,
       }),
     );
+    const idempotencyKey = operationKey(request);
     return json(
       await processRental(
-        { ...input, source: "manual", idempotencyKey: operationKey(request) },
+        {
+          ...input,
+          externalRentalId:
+            input.externalRentalId ?? `manual:${idempotencyKey}`,
+          source: "manual",
+          idempotencyKey,
+        },
         actor,
       ),
       201,
@@ -370,6 +466,7 @@ export async function adminRoute(
         status: z.enum(["accepted", "in_progress", "completed", "cancelled"]),
         paymentStatus: z.enum(["paid", "unpaid", "partial", "refunded"]),
         expectedVersion: z.number().int().positive(),
+        completedAt: z.iso.datetime({ offset: true }).optional(),
         reason,
       }),
     );
@@ -447,6 +544,30 @@ export async function adminRoute(
           actor,
         ),
       );
+  }
+  const turnoverAction = path.match(
+    /^admin\/customers\/([a-f0-9-]{36})\/rental-turnover$/,
+  );
+  if (request.method === "POST" && turnoverAction) {
+    await manager();
+    const input = await body(
+      request,
+      z.object({
+        operation: z.enum(["credit", "debit"]),
+        amountKopecks: amount,
+        reason,
+      }),
+    );
+    return json(
+      await adjustRentalTurnover(
+        {
+          ...input,
+          userId: turnoverAction[1],
+          idempotencyKey: operationKey(request),
+        },
+        actor,
+      ),
+    );
   }
   const memberAction = path.match(
     /^admin\/customers\/([a-f0-9-]{36})\/(tier|block|restore)$/,

@@ -47,4 +47,24 @@ describe("approved notification and tier contracts", () => {
     );
     expect(defaultNotification("RIDE_02").body).not.toContain("{bonus_added}");
   });
+  it("accepts an uploaded notification photo and limits its caption", () => {
+    const base = defaultNotification("RIDE_01");
+    const imageUrl = "/api/media/123e4567-e89b-12d3-a456-426614174000.webp";
+    expect(
+      notificationRuleSchema.safeParse({ ...base, imageUrl }).success,
+    ).toBe(true);
+    expect(
+      notificationRuleSchema.safeParse({
+        ...base,
+        imageUrl: "https://example.com/photo",
+      }).success,
+    ).toBe(false);
+    expect(
+      notificationRuleSchema.safeParse({
+        ...base,
+        imageUrl,
+        body: "x".repeat(1000),
+      }).success,
+    ).toBe(false);
+  });
 });

@@ -8,6 +8,7 @@ import { operationsRoute } from "@/lib/api/operations";
 import { notificationsRoute } from "@/lib/notifications/api";
 import { after } from "next/server";
 import { processJobs } from "@/lib/jobs";
+import { rouletteRoute } from "@/lib/roulette";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ async function route(request: Request, context: Context) {
       authRoute,
       notificationsRoute,
       clubRoute,
+      rouletteRoute,
       clientRoute,
       operationsRoute,
       adminRoute,

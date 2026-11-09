@@ -324,42 +324,67 @@ const requestLabels: Record<string, string> = {
   declined: "Отклонена",
   cancelled: "Отменена клиентом",
 };
-export function RentalRequestsPage({ staff }: { staff: StaffView }) {
+export function RentalRequestsPage({
+  staff,
+  embedded = false,
+  statusFilter,
+}: {
+  staff: StaffView;
+  embedded?: boolean;
+  statusFilter?: "pending" | "cancelled";
+}) {
   const [status, setStatus] = useState("pending"),
-    [selected, setSelected] = useState<RentalRequest | null>(null);
+    [selected, setSelected] = useState<{
+      item: RentalRequest;
+      decision: "accepted" | "declined";
+    } | null>(null);
+  const effectiveStatus =
+    statusFilter === "cancelled" ? "closed" : (statusFilter ?? status);
   const r = useResource<{ items: RentalRequest[] }>(
-    "admin/rental-requests?status=" + status,
+    "admin/rental-requests?status=" + effectiveStatus,
     30000,
   );
+  const items = r.data?.items ?? [];
   return (
     <>
-      <PageHeading
-        title="Заявки на аренду"
-        subtitle="Подтверждение создаст аренду со статусом «Принята» и зафиксированной стоимостью"
-      />
-      <div className="filter-bar">
-        <select
-          aria-label="Статус заявки"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          <option value="all">Все статусы</option>
-          {Object.entries(requestLabels).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!embedded && (
+        <PageHeading
+          title="Заявки на аренду"
+          subtitle="Подтверждение создаст аренду со статусом «Принята» и зафиксированной стоимостью"
+        />
+      )}
+      {embedded && (
+        <h2>
+          {statusFilter === "cancelled"
+            ? "Отклонённые и отменённые заявки"
+            : "Требуют решения"}
+        </h2>
+      )}
+      {!embedded && (
+        <div className="filter-bar">
+          <select
+            aria-label="Статус заявки"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+          >
+            <option value="all">Все статусы</option>
+            {Object.entries(requestLabels).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {r.error ? (
         <Failure error={r.error} retry={r.refresh} />
       ) : !r.data ? (
         <Loading />
-      ) : r.data.items.length === 0 ? (
+      ) : items.length === 0 ? (
         <Empty title="Заявок пока нет" />
       ) : (
         <div className="request-admin-list">
-          {r.data.items.map((item) => (
+          {items.map((item) => (
             <section className="panel request-admin-card" key={item.id}>
               <div>
                 <span className="eyebrow">{requestLabels[item.status]}</span>
@@ -404,9 +429,39 @@ export function RentalRequestsPage({ staff }: { staff: StaffView }) {
                 {item.discount_bps > 0 && (
                   <p className="small-note">
                     Скидка {item.discount_bps / 100}% ·{" "}
-                    {money(item.discount_kopecks)}
+                    {money(
+                      (
+                        BigInt(item.discount_kopecks) -
+                        BigInt(item.roulette_effect_kopecks ?? "0")
+                      ).toString(),
+                    )}
                   </p>
                 )}
+                {(
+                  (
+                    item as RentalRequest & {
+                      roulette_awards?: {
+                        id: string;
+                        title: string;
+                        terms: string;
+                        claim_code: string;
+                        status: string;
+                        effect_kopecks: string;
+                      }[];
+                    }
+                  ).roulette_awards ?? []
+                ).map((award) => (
+                  <p className="request-prize" key={award.id}>
+                    <strong>Приз: {award.title}</strong> · код{" "}
+                    <code>{award.claim_code}</code>
+                    {BigInt(award.effect_kopecks) > 0n && (
+                      <> · скидка {money(award.effect_kopecks)}</>
+                    )}
+                    {award.status === "redeemed" && (
+                      <small>Использован · архив</small>
+                    )}
+                  </p>
+                ))}
                 {item.comment && (
                   <p className="preserve-lines">{item.comment}</p>
                 )}
@@ -435,9 +490,20 @@ export function RentalRequestsPage({ staff }: { staff: StaffView }) {
                   )}
                 </div>
               ) : item.status === "pending" && staff.role !== "viewer" ? (
-                <button className="button" onClick={() => setSelected(item)}>
-                  Обработать
-                </button>
+                <div className="detail-actions">
+                  <button
+                    className="button"
+                    onClick={() => setSelected({ item, decision: "accepted" })}
+                  >
+                    Подтвердить
+                  </button>
+                  <button
+                    className="button button-outline"
+                    onClick={() => setSelected({ item, decision: "declined" })}
+                  >
+                    Отклонить
+                  </button>
+                </div>
               ) : item.rental_id ? (
                 <Link href="/admin/rentals" className="text-link">
                   К арендам →
@@ -449,7 +515,8 @@ export function RentalRequestsPage({ staff }: { staff: StaffView }) {
       )}
       {selected && (
         <RequestDecision
-          item={selected}
+          item={selected.item}
+          initialDecision={selected.decision}
           onClose={() => setSelected(null)}
           onDone={() => {
             setSelected(null);
@@ -462,16 +529,18 @@ export function RentalRequestsPage({ staff }: { staff: StaffView }) {
 }
 function RequestDecision({
   item,
+  initialDecision = "accepted",
   onClose,
   onDone,
 }: {
   item: RentalRequest;
+  initialDecision?: "accepted" | "declined";
   onClose: () => void;
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [decision, setDecision] = useState("accepted");
+  const [decision, setDecision] = useState(initialDecision);
   return (
     <Dialog title={item.car_name} onClose={onClose} protectChanges busy={busy}>
       <form
@@ -505,7 +574,9 @@ function RequestDecision({
           <select
             name="status"
             value={decision}
-            onChange={(e) => setDecision(e.target.value)}
+            onChange={(e) =>
+              setDecision(e.target.value as "accepted" | "declined")
+            }
           >
             <option value="accepted">Подтвердить аренду</option>
             <option value="declined">Отклонить заявку</option>
@@ -539,6 +610,7 @@ export function TriggerRulesPage() {
   const r = useResource<{ items: TriggerRule[]; weatherReady: boolean }>(
     "admin/trigger-rules",
   );
+  const enabledCount = r.data?.items.filter((rule) => rule.enabled).length ?? 0;
   return (
     <>
       <PageHeading
@@ -548,24 +620,25 @@ export function TriggerRulesPage() {
       <LifecycleNotifications />
       <h2>Поездки, публикации и погода</h2>
       <p className="small-note">
-        До аренды — за указанное в правиле число часов до времени выдачи
-        (Москва). После аренды — сразу после статуса «Завершена», независимо от
-        оплаты. Предложения и маршруты — после публикации. Проверка событий —
-        каждую минуту; сообщения отправляются через очередь. Старые публикации
-        при включении рассылки не отправляются.
+        {enabledCount} из {r.data?.items.length ?? 0} включено. Нажмите
+        «Включить» рядом с нужным событием. Старые публикации после включения не
+        рассылаются.
       </p>
       {r.error ? (
         <Failure error={r.error} />
       ) : !r.data ? (
         <Loading />
       ) : (
-        r.data.items.map((rule) => (
-          <TriggerForm
-            key={rule.kind}
-            rule={rule}
-            weatherReady={r.data!.weatherReady}
-          />
-        ))
+        r.data.items
+          .filter((rule) => rule.kind !== "weather")
+          .map((rule) => (
+            <TriggerForm
+              key={JSON.stringify(rule)}
+              rule={rule}
+              weatherReady={r.data!.weatherReady}
+              onDone={r.refresh}
+            />
+          ))
       )}
     </>
   );
@@ -573,132 +646,204 @@ export function TriggerRulesPage() {
 function TriggerForm({
   rule,
   weatherReady,
+  onDone,
 }: {
   rule: TriggerRule;
   weatherReady: boolean;
+  onDone: () => Promise<void>;
 }) {
   const guard = useUnsavedChanges();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [success, setSuccess] = useState("");
+    [success, setSuccess] = useState(""),
+    [dirty, setDirty] = useState(false);
+  const weatherBlocked =
+    rule.kind === "weather" && !weatherReady && !rule.enabled;
+  const timing =
+    rule.kind === "before_rental"
+      ? `За ${rule.lead_hours} ч до выдачи автомобиля`
+      : rule.kind === "weather"
+        ? `Прогноз за ${rule.lead_hours} ч до выдачи`
+        : rule.kind === "after_rental"
+          ? "После завершения аренды"
+          : rule.kind === "offer_reminder"
+            ? "После публикации предложения"
+            : "После публикации маршрута";
   return (
-    <form
-      className="panel trigger-form"
-      onChange={() => {
-        guard.markDirty();
-        setSuccess("");
-      }}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        setError("");
-        setSuccess("");
-        const f = new FormData(e.currentTarget);
-        try {
-          await command("admin/trigger-rules", {
-            kind: rule.kind,
-            enabled: f.has("enabled"),
-            message: f.get("message"),
-            leadHours: Number(f.get("hours") ?? 0),
-            city: f.get("city") ?? "",
-            latitude: f.get("lat") ? Number(f.get("lat")) : null,
-            longitude: f.get("lon") ? Number(f.get("lon")) : null,
-          });
-          setSuccess("Настройки сохранены");
-          guard.markSaved();
-        } catch (e) {
-          setError((e as Error).message);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
+    <article className="panel trigger-form">
       <div className="panel-header">
-        <h2>
-          <Bell size={18} /> {triggerLabels[rule.kind]}
-        </h2>
-        <label className="checkbox-field">
-          <input
-            name="enabled"
-            type="checkbox"
-            defaultChecked={rule.enabled}
-            disabled={busy}
-          />
-          Включено
-        </label>
-      </div>
-      <div className="panel-body form-stack">
-        <Field label="Текст сообщения">
-          <textarea
-            name="message"
-            disabled={busy}
-            rows={3}
-            maxLength={1800}
-            minLength={3}
-            defaultValue={rule.message}
-            required
-          />
-        </Field>
-        {(rule.kind === "before_rental" || rule.kind === "weather") && (
-          <Field label="За сколько часов до выдачи">
-            <input
-              name="hours"
-              disabled={busy}
-              type="number"
-              min={1}
-              max={168}
-              defaultValue={rule.lead_hours}
-              required
-            />
-          </Field>
-        )}
-        {rule.kind === "weather" && (
-          <>
-            {!weatherReady && (
-              <p className="small-note">
-                Сервис прогноза ещё не подключён. Нужен ключ Open-Meteo для
-                коммерческого использования.
-              </p>
-            )}
-            <Field label="Город">
-              <input
-                name="city"
-                defaultValue={rule.city}
-                maxLength={120}
-                disabled={busy}
-              />
-            </Field>
-            <div className="form-grid">
-              <Field label="Широта">
-                <input
-                  name="lat"
-                  disabled={busy}
-                  type="number"
-                  step="any"
-                  min={-90}
-                  max={90}
-                  defaultValue={rule.latitude ?? ""}
-                />
-              </Field>
-              <Field label="Долгота">
-                <input
-                  name="lon"
-                  disabled={busy}
-                  type="number"
-                  step="any"
-                  min={-180}
-                  max={180}
-                  defaultValue={rule.longitude ?? ""}
-                />
-              </Field>
-            </div>
-          </>
-        )}
-        <FormMessage error={error} success={success} />
-        <button className="button" disabled={busy}>
-          {busy && <Spinner />}Сохранить
+        <div>
+          <h2>
+            <Bell size={18} /> {triggerLabels[rule.kind]}
+          </h2>
+          <span className="small-note">
+            {weatherBlocked
+              ? "Недоступно: нужен ключ погоды"
+              : rule.enabled
+                ? "Включено"
+                : "Выключено"}{" "}
+            · {timing}
+          </span>
+        </div>
+        <button
+          type="button"
+          className={rule.enabled ? "button button-outline" : "button"}
+          disabled={busy || weatherBlocked}
+          onClick={async () => {
+            if (dirty) {
+              setError("Сначала сохраните изменения в настройках.");
+              return;
+            }
+            setBusy(true);
+            setError("");
+            try {
+              await command("admin/trigger-rules", {
+                kind: rule.kind,
+                enabled: !rule.enabled,
+                message: rule.message,
+                leadHours: rule.lead_hours,
+                city: rule.city,
+                latitude: rule.latitude,
+                longitude: rule.longitude,
+              });
+              await onDone();
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Сохраняем…" : rule.enabled ? "Выключить" : "Включить"}
         </button>
       </div>
-    </form>
+      {(error || success) && (
+        <div className="panel-body">
+          <FormMessage error={error} success={success} />
+        </div>
+      )}
+      <details>
+        <summary className="panel-body">Изменить текст и условия</summary>
+        <form
+          className="form-stack"
+          onChange={() => {
+            guard.markDirty();
+            setDirty(true);
+            setSuccess("");
+          }}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError("");
+            setSuccess("");
+            const f = new FormData(e.currentTarget);
+            try {
+              await command("admin/trigger-rules", {
+                kind: rule.kind,
+                enabled: rule.enabled,
+                message: f.get("message"),
+                leadHours: Number(f.get("hours") ?? 0),
+                city: f.get("city") ?? "",
+                latitude: f.get("lat") ? Number(f.get("lat")) : null,
+                longitude: f.get("lon") ? Number(f.get("lon")) : null,
+              });
+              setSuccess("Настройки сохранены");
+              guard.markSaved();
+              setDirty(false);
+              await onDone();
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <div className="panel-body form-stack">
+            <Field label="Текст сообщения">
+              <textarea
+                name="message"
+                disabled={busy}
+                rows={3}
+                maxLength={1800}
+                minLength={3}
+                defaultValue={rule.message}
+                required
+              />
+            </Field>
+            {(rule.kind === "before_rental" || rule.kind === "weather") && (
+              <Field
+                label={
+                  rule.kind === "weather"
+                    ? "За сколько часов до выдачи отправить прогноз"
+                    : "За сколько часов до выдачи"
+                }
+              >
+                <input
+                  name="hours"
+                  disabled={busy}
+                  type="number"
+                  min={1}
+                  max={168}
+                  defaultValue={rule.lead_hours}
+                  required
+                />
+              </Field>
+            )}
+            {rule.kind === "weather" && (
+              <>
+                {!weatherReady && (
+                  <p className="form-error">
+                    Для коммерческого использования нужен ключ API Standard или
+                    выше. Добавьте его на сервере в OPEN_METEO_API_KEY; при
+                    включении ключ будет проверен запросом к Open-Meteo.
+                  </p>
+                )}
+                <Field label="Город">
+                  <input
+                    name="city"
+                    defaultValue={rule.city}
+                    maxLength={120}
+                    disabled={busy}
+                  />
+                </Field>
+                <p className="small-note">
+                  В уведомление войдут минимальная и максимальная температура и
+                  вероятность осадков на день выдачи. Рассылка адресована
+                  участникам с согласием на маркетинговые сообщения.
+                </p>
+                <div className="form-grid">
+                  <Field label="Широта">
+                    <input
+                      name="lat"
+                      disabled={busy}
+                      type="number"
+                      step="any"
+                      min={-90}
+                      max={90}
+                      defaultValue={rule.latitude ?? ""}
+                    />
+                  </Field>
+                  <Field label="Долгота">
+                    <input
+                      name="lon"
+                      disabled={busy}
+                      type="number"
+                      step="any"
+                      min={-180}
+                      max={180}
+                      defaultValue={rule.longitude ?? ""}
+                    />
+                  </Field>
+                </div>
+              </>
+            )}
+            <FormMessage error={error} success={success} />
+            <button className="button" disabled={busy}>
+              {busy && <Spinner />}Сохранить
+            </button>
+          </div>
+        </form>
+      </details>
+    </article>
   );
 }

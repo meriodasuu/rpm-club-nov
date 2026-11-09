@@ -59,23 +59,55 @@ export function RentalScreen() {
   );
   const [selected, setSelected] = useState<ClubContent | null>(null),
     [requestVersion, setRequestVersion] = useState(0);
+  const [offer, setOffer] = useState<{
+    id: string;
+    title: string;
+    offer_type: string;
+    car_id: string | null;
+    discount_bps: number | null;
+    version: number;
+  } | null>(null);
+  const [offerError, setOfferError] = useState("");
   const [resume, setResume] = useState<BookingDraft | null>(null),
     [resumeError, setResumeError] = useState("");
   useEffect(() => {
-    const id = new URLSearchParams(location.search).get("draft");
-    if (id)
-      void api<BookingDraft>("me/booking-draft?id=" + encodeURIComponent(id))
+    const params = new URLSearchParams(location.search);
+    const draftId = params.get("draft");
+    const offerId = params.get("offer");
+    if (draftId)
+      void api<BookingDraft>("me/booking-draft?id=" + encodeURIComponent(draftId))
         .then(setResume)
         .catch((e) => setResumeError(e.message));
+    if (offerId && /^[0-9a-f-]{36}$/i.test(offerId))
+      void api<typeof offer>("offers/" + encodeURIComponent(offerId))
+        .then((value) => {
+          if (
+            value?.offer_type !== "catalog" ||
+            !value.car_id ||
+            !value.discount_bps
+          )
+            throw new Error("Предложение не связано с доступной арендой");
+          setOffer(value);
+        })
+        .catch((e: Error) => setOfferError(e.message));
   }, []);
-  const selectedCar = r.data?.items.find(
-    (c) => c.id === (selected?.id ?? resume?.car_id),
-  );
+  const offerCar = offer && r.data?.items.find((item) => item.id === offer.car_id);
+  const selectedCar = offer
+    ? offerCar
+    : r.data?.items.find((c) => c.id === (selected?.id ?? resume?.car_id));
   return (
     <>
       <h1>Автопарк</h1>
       <p className="screen-subtitle">Выберите автомобиль для поездки</p>
-      <FormMessage error={resumeError} />
+      <FormMessage
+        error={
+          offerError ||
+          resumeError ||
+          (offer && r.data && !offerCar
+            ? "Автомобиль из предложения сейчас недоступен в каталоге"
+            : "")
+        }
+      />
       {r.error ? (
         <Failure error={r.error} retry={r.refresh} />
       ) : !r.data ? (
@@ -86,7 +118,7 @@ export function RentalScreen() {
         </Empty>
       ) : (
         <div className="catalog-list">
-          {r.data.items.map((car) => (
+          {r.data.items.filter((car) => !offer || car.id === offer.car_id).map((car) => (
             <CarCard
               key={car.id}
               car={car}
@@ -106,6 +138,12 @@ export function RentalScreen() {
         <BookingDialog
           car={selectedCar}
           initial={resume}
+          offer={offer && offer.car_id === selectedCar.id ? {
+            id: offer.id,
+            title: offer.title,
+            discount_bps: offer.discount_bps!,
+            version: offer.version,
+          } : null}
           onClose={() => {
             setSelected(null);
             setResume(null);
@@ -162,6 +200,13 @@ export function RentalRequests() {
           {item.discount_bps > 0 && (
             <p className="small-note">Скидка {item.discount_bps / 100}%</p>
           )}
+          {((item as RentalRequest & { roulette_awards?: { id: string; title: string; terms: string; claim_code: string; status: string; effect_kopecks: string }[] }).roulette_awards ?? []).map((award) => (
+            <div className="request-prize" key={award.id}>
+              <strong>{award.title}</strong> · код <code>{award.claim_code}</code>
+              {BigInt(award.effect_kopecks) > 0n && <span> · −{money(award.effect_kopecks)}</span>}
+              {award.status === "redeemed" && <small>Приз использован и находится в архиве</small>}
+            </div>
+          ))}
           {item.pickup_at && (
             <p className="small-note">
               Выдача:{" "}

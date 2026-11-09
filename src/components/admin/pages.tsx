@@ -14,6 +14,8 @@ import {
   ArrowUpRight,
   RotateCcw,
   ChevronRight,
+  UsersRound,
+  CarFront,
 } from "lucide-react";
 import {
   useResource,
@@ -24,9 +26,12 @@ import {
   Field,
   FormMessage,
   command,
+  api,
 } from "@/components/shared";
 import { money, date, labels } from "@/lib/ui";
 import { AdminShell, type StaffView } from "./shell";
+import { CustomerQuickSearch } from "./customer-quick-search";
+import { ImageUpload } from "./image-upload";
 import {
   DataTable,
   PageHeading,
@@ -43,6 +48,8 @@ import type { AccountSnapshot, Program } from "@/lib/loyalty/types";
 import { resolveTierBenefits, tierName } from "@/lib/loyalty/rules";
 import { ImportPage } from "./imports";
 import { OffersPage } from "./offers";
+import { RouletteAdminPage } from "./roulette";
+import { RouletteAwardHistory } from "./roulette-awards";
 import { ReferralsPage } from "./referrals";
 import {
   awardStatusLabels,
@@ -74,6 +81,10 @@ export function AdminApp({
           <ImportPage staff={staff} />
         ) : section === "offers" ? (
           <OffersPage staff={staff} />
+        ) : section === "roulette" ? (
+          <RouletteAdminPage staff={staff} />
+        ) : section === "giveaways" ? (
+          <GiveawaysPage staff={staff} />
         ) : section === "settings" ? (
           <SettingsPage />
         ) : section === "tiers" ? (
@@ -111,6 +122,70 @@ export function AdminApp({
     </AdminShell>
   );
 }
+
+function GiveawaysPage({ staff }: { staff: StaffView }) {
+  const giveaways = useResource<{ items: { id:string; title:string; status:string; starts_at:string; ends_at:string; participant_count:number; issued_count:number }[] }>("admin/giveaways");
+  const [message, setMessage] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [detail, setDetail] = useState<{ id:string; participants:{name:string;qualified_amount_kopecks:string}[]; winners:{position:number;name:string;status:string; award_id?:string}[] } | null>(null);
+  const emptyPrize = () => ({ title:"", summary:"", terms:"", imageUrl:"", effectType:"info", effectValue:"0", ttlDays:"30" });
+  const [draft, setDraft] = useState({ title:"", rules:"", imageUrl:"", minimumTier:"MEMBER", minimumAmount:"0", winnerCount:"1", startsAt:"", endsAt:"", prizes:[emptyPrize()] });
+  const loadDetail = async (id: string) => {
+    const result = await api<{ item:{id:string}; participants:{name:string;qualified_amount_kopecks:string}[]; winners:{position:number;name:string;status:string;award_id?:string}[] }>(`admin/giveaways/${id}`);
+    setDetail({ id:result.item.id, participants:result.participants, winners:result.winners });
+  };
+  const saveDraft = async () => {
+    try {
+      const winnerCount = Number(draft.winnerCount);
+      await command("admin/giveaways", {
+        title: draft.title,
+        rules: draft.rules,
+        imageUrl: draft.imageUrl,
+        minimumTier: draft.minimumTier,
+        minimumAmountKopecks: String(Math.round(Number(draft.minimumAmount) * 100)),
+        winnerCount,
+        startsAt: new Date(draft.startsAt + ":00+03:00").toISOString(),
+        endsAt: new Date(draft.endsAt + ":00+03:00").toISOString(),
+        prizes: draft.prizes.map((prize) => ({
+          ...prize,
+          effectValue: Number(prize.effectValue),
+          ttlDays: Number(prize.ttlDays),
+        })),
+      }, "POST", crypto.randomUUID());
+      setCreating(false);
+      await giveaways.refresh();
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  };
+  if (giveaways.loading) return <Loading />;
+  if (giveaways.error) return <Failure error={giveaways.error} retry={giveaways.refresh} />;
+  return <>
+    <PageHeading title="Розыгрыши" subtitle="Участники формируются автоматически по условиям аренды">{staff.role !== "viewer" && <button className="button" type="button" onClick={()=>setCreating(true)}>Создать розыгрыш</button>}</PageHeading>
+    {message && <FormMessage error={message} />}
+    <div className="offers-grid">{giveaways.data?.items.map(item => <article className="offer-admin-card" style={{padding:16}} key={item.id}>
+      <h2>{item.title}</h2><p>{item.status} · участников: {item.participant_count} · выдано: {item.issued_count}</p>
+      <p className="small-note">{new Date(item.starts_at).toLocaleString("ru-RU")} — {new Date(item.ends_at).toLocaleString("ru-RU")}</p>
+      <button type="button" className="button button-outline" onClick={async()=>{try { await loadDetail(item.id); } catch(e){setMessage((e as Error).message)}}}>Участники и победители</button>
+      {item.status === "published" && new Date(item.ends_at) <= new Date() && staff.role !== "viewer" && <button type="button" className="button" onClick={async()=>{ try { await command(`admin/giveaways/${item.id}/draw`, {}, "POST", crypto.randomUUID()); await giveaways.refresh(); await loadDetail(item.id); } catch (e) { setMessage((e as Error).message); } }}>Провести сейчас</button>}
+      {item.status === "draft" && staff.role !== "viewer" && <button type="button" className="button" onClick={async()=>{try { await command(`admin/giveaways/${item.id}/publish`,{},"POST",crypto.randomUUID()); await giveaways.refresh();} catch(e){setMessage((e as Error).message)}}}>Опубликовать</button>}
+      {["draft","published"].includes(item.status) && staff.role !== "viewer" && <button type="button" className="button button-outline" onClick={async()=>{const reason=prompt("Причина отмены"); if(!reason) return; try {await command(`admin/giveaways/${item.id}/cancel`,{reason},"POST",crypto.randomUUID()); await giveaways.refresh();}catch(e){setMessage((e as Error).message)}}}>Отменить</button>}
+    </article>)}</div>
+    {detail && <section className="panel panel-body"><h2>Участники и победители</h2><button type="button" className="button button-outline" onClick={()=>setDetail(null)}>Закрыть</button><h3>Участники ({detail.participants.length})</h3>{detail.participants.map(p=><p key={p.name}>{p.name} · {(Number(p.qualified_amount_kopecks) / 100).toLocaleString("ru-RU")} ₽</p>)}<h3>Победители</h3>{detail.winners.map(w=><p key={w.position}>{w.position}. {w.name} · {w.status === "issued" ? "приз выдан" : w.status} {w.award_id ? `· награда ${w.award_id.slice(0,8)}` : ""}</p>)}</section>}
+    {creating && <div className="panel panel-body form-stack"><h2>Новый розыгрыш</h2>
+      <Field label="Название розыгрыша"><input value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></Field>
+      <Field label="Условия"><textarea value={draft.rules} onChange={e=>setDraft({...draft,rules:e.target.value})}/></Field>
+      <ImageUpload value={draft.imageUrl} onChange={imageUrl=>setDraft({...draft,imageUrl})} busy={uploading} onBusy={setUploading}/>
+      <Field label="Минимальный уровень"><select value={draft.minimumTier} onChange={e=>setDraft({...draft,minimumTier:e.target.value})}>{["MEMBER","DRIVE","BLACK","PLATINUM","RED","SIGNATURE"].map(x=><option key={x}>{x}</option>)}</select></Field>
+      <Field label="Сумма аренд, ₽"><input type="number" min="0" value={draft.minimumAmount} onChange={e=>setDraft({...draft,minimumAmount:e.target.value})}/></Field>
+      <Field label="Победителей"><input type="number" min="1" value={draft.winnerCount} onChange={e=>{const winnerCount=Math.max(1,Number(e.target.value)||1); setDraft({...draft, winnerCount:String(winnerCount), prizes:Array.from({length:winnerCount},(_,i)=>draft.prizes[i] ?? emptyPrize())}); }}/></Field>
+      <h3>Призы по местам</h3>{draft.prizes.map((prize,index)=>{ const valueLabel = prize.effectType === "percent" ? "Скидка, сотых процента: 500 = 5%" : prize.effectType === "fixed" ? "Скидка, копеек" : prize.effectType === "free_day" ? "Количество бесплатных суток" : "Размер эффекта"; return <section className="panel panel-body form-stack" key={index}><strong>{index+1}-е место</strong><Field label="Название"><input value={prize.title} onChange={e=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,title:e.target.value}:p)})}/></Field><Field label="Краткое описание"><input value={prize.summary} onChange={e=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,summary:e.target.value}:p)})}/></Field><ImageUpload value={prize.imageUrl} onChange={imageUrl=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,imageUrl}:p)})} busy={uploading} onBusy={setUploading}/><Field label="Условия"><textarea value={prize.terms} onChange={e=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,terms:e.target.value}:p)})}/></Field><Field label="Тип приза"><select value={prize.effectType} onChange={e=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,effectType:e.target.value,effectValue:["info","wash","upgrade"].includes(e.target.value)?"0":p.effectValue}:p)})}><option value="info">Информация / подарок</option><option value="percent">Скидка в процентах</option><option value="fixed">Скидка в рублях</option><option value="free_day">Бесплатные сутки</option><option value="wash">Мойка</option><option value="upgrade">Повышение класса</option></select></Field>{!["info","wash","upgrade"].includes(prize.effectType) && <Field label={valueLabel}><input type="number" min="1" value={prize.effectValue} onChange={e=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,effectValue:e.target.value}:p)})}/></Field>}<Field label="Срок действия, дней"><input type="number" min="1" max="365" value={prize.ttlDays} onChange={e=>setDraft({...draft,prizes:draft.prizes.map((p,i)=>i===index?{...p,ttlDays:e.target.value}:p)})}/></Field></section>})}
+      <Field label="Начало (Москва)"><input type="datetime-local" value={draft.startsAt} onChange={e=>setDraft({...draft,startsAt:e.target.value})}/></Field>
+      <Field label="Окончание (Москва)"><input type="datetime-local" value={draft.endsAt} onChange={e=>setDraft({...draft,endsAt:e.target.value})}/></Field><button className="button" type="button" disabled={uploading} onClick={saveDraft}>{uploading ? "Загрузка изображения…" : "Сохранить черновик"}</button>
+    </div>}
+  </>;
+}
 function Dashboard() {
   const { data, error, loading, refresh } = useResource<{
     stats: Row;
@@ -125,17 +200,33 @@ function Dashboard() {
     <>
       <PageHeading
         title="Обзор клуба"
-        subtitle="Аренды, участники и программа в цифрах"
-      >
-        <Link href="/admin/import" className="button button-outline">
-          <Upload size={17} />
-          Импортировать
-        </Link>
-        <Link href="/admin/customers" className="button">
-          Клиенты
-          <ArrowUpRight size={18} />
-        </Link>
-      </PageHeading>
+        subtitle="Рабочая точка менеджера: участники, аренды и программа"
+      />
+      <section className="operations-workbench" aria-label="Быстрые действия менеджера">
+        <div>
+          <span className="eyebrow">Рабочее пространство</span>
+          <h2>Начните с участника</h2>
+          <p>Найдите клиента по имени или телефону — карточка откроется сразу.</p>
+          <CustomerQuickSearch />
+        </div>
+        <div className="operations-actions">
+          <Link href="/admin/customers" className="operation-action primary">
+            <UsersRound size={20} />
+            <span><strong>Клиенты</strong><small>Поиск и карточки участников</small></span>
+            <ArrowUpRight size={18} />
+          </Link>
+          <Link href="/admin/rentals" className="operation-action">
+            <CarFront size={20} />
+            <span><strong>Добавить аренду</strong><small>Оформить и проверить аренду</small></span>
+            <ArrowUpRight size={18} />
+          </Link>
+          <Link href="/admin/import" className="operation-action">
+            <Upload size={20} />
+            <span><strong>Импортировать</strong><small>Загрузить новые данные</small></span>
+            <ArrowUpRight size={18} />
+          </Link>
+        </div>
+      </section>
       <Stats stats={data.stats} />
       <p className="small-note">
         За всё время · Заблокировано участников:{" "}
@@ -248,19 +339,26 @@ function Dashboard() {
           </dl>
         </div>
       </section>
-      <section className="panel">
+      <section className="panel recent-activity">
         <div className="panel-header">
-          <h2>Последние аренды</h2>
+          <div>
+            <span className="eyebrow">Операции</span>
+            <h2>Последние аренды</h2>
+          </div>
           <Link className="text-link" href="/admin/rentals">
             Все аренды
             <ChevronRight size={16} />
           </Link>
         </div>
-        <DataTable
-          headings={["Автомобиль", "Участник", "Завершение", "Сумма", "Статус"]}
-          rows={data.recent}
-          render={(r) => <RentalCells row={r} />}
-        />
+        {data.recent.length ? (
+          <DataTable
+            headings={["Автомобиль", "Участник", "Завершение", "Сумма", "Статус"]}
+            rows={data.recent}
+            render={(r) => <RentalCells row={r} />}
+          />
+        ) : (
+          <div className="panel-body"><p className="muted">Завершённых аренд пока нет.</p></div>
+        )}
       </section>
     </>
   );
@@ -395,13 +493,18 @@ function OperationsList({
   staff: StaffView;
 }) {
   const [page, setPage] = useState(0),
+    [rentalTab, setRentalTab] = useState("all"),
     [dialog, setDialog] = useState<{
       action: FinanceAction;
       id?: string;
       rental?: Row;
     } | null>(null);
   const [filters, setFilters] = useState<Record<string, string>>({});
-  const params = new URLSearchParams({ ...filters, page: String(page) });
+  const params = new URLSearchParams({
+    ...filters,
+    page: String(page),
+    ...(section === "rentals" ? { view: rentalTab } : {}),
+  });
   const { data, error, refresh } = useResource<{ items: Row[]; total: number }>(
     `admin/${section}?${params}`,
   );
@@ -443,233 +546,305 @@ function OperationsList({
           </>
         )}
       </PageHeading>
-      <section className="panel">
-        <form
-          className="filters"
-          style={{ flexWrap: "wrap", alignItems: "end" }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = new FormData(event.currentTarget);
-            setFilters(
-              Object.fromEntries(
-                [...form.entries()].map(([key, value]) => [key, String(value)]),
-              ),
-            );
-            setPage(0);
-          }}
-        >
-          {rentals ? (
-            <>
-              <Field label="Статус аренды">
-                <select name="status">
-                  <option value="">Все статусы</option>
-                  {["accepted", "in_progress", "completed", "cancelled"].map(
-                    (value) => (
-                      <option value={value} key={value}>
-                        {labels[value]}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </Field>
-              <Field label="Оплата">
-                <select name="payment_status">
-                  <option value="">Любая оплата</option>
-                  {["paid", "unpaid", "partial", "refunded"].map((value) => (
-                    <option value={value} key={value}>
-                      {labels[value]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Источник">
-                <input
-                  name="source"
-                  maxLength={128}
-                  placeholder="Например, manual или rpm"
-                />
-              </Field>
-            </>
-          ) : (
-            <>
-              <Field label="Тип Bonus">
-                <select name="type">
-                  <option value="">Все операции</option>
-                  {[
-                    "rental_cashback",
-                    "referral_reward",
-                    "manual_credit",
-                    "manual_debit",
-                    "rental_payment",
-                    "expiration",
-                    "reversal",
-                  ].map((value) => (
-                    <option value={value} key={value}>
-                      {labels[value]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Клиент">
-                <input
-                  name="q"
-                  placeholder="Имя, телефон или Member ID"
-                  maxLength={200}
-                />
-              </Field>
-            </>
-          )}
-          <Field label={rentals ? "Завершение с" : "Операции с (Москва)"}>
-            <input type="date" name="date_from" />
-          </Field>
-          <Field label="По включительно">
-            <input type="date" name="date_to" />
-          </Field>
-          <button className="button button-small" type="submit">
-            Применить
-          </button>
-          <button
-            className="button button-small button-outline"
-            type="reset"
-            onClick={() => {
-              setFilters({});
+      {rentals && (
+        <div className="filter-bar" role="tablist" aria-label="Аренды и заявки">
+          {[
+            ["all", "Все"],
+            ["needs", "Требуют решения"],
+            ["confirmed", "Подтверждённые"],
+            ["completed", "Завершённые"],
+            ["cancelled", "Отменённые"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={rentalTab === key}
+              className={
+                rentalTab === key
+                  ? "button button-small"
+                  : "button button-small button-outline"
+              }
+              onClick={() => {
+                setRentalTab(key);
+                setPage(0);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {rentals && ["all", "needs", "cancelled"].includes(rentalTab) && (
+        <RentalRequestsPage
+          staff={staff}
+          embedded
+          statusFilter={rentalTab === "cancelled" ? "cancelled" : "pending"}
+        />
+      )}
+      {(!rentals || rentalTab !== "needs") && (
+        <section className="panel">
+          <form
+            className="filters"
+            style={{ flexWrap: "wrap", alignItems: "end" }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              setFilters(
+                Object.fromEntries(
+                  [...form.entries()].map(([key, value]) => [
+                    key,
+                    String(value),
+                  ]),
+                ),
+              );
               setPage(0);
             }}
           >
-            Сбросить
-          </button>
-        </form>
-        {error ? (
-          <Failure error={error} retry={refresh} />
-        ) : !data ? (
-          <Loading />
-        ) : (
-          <>
-            <DataTable
-              headings={
-                rentals
-                  ? [
-                      "Автомобиль",
-                      "Участник",
-                      "Завершение",
-                      "Сумма",
-                      "Статус",
-                      ...(staff.role !== "viewer" ? ["Действия"] : []),
-                    ]
-                  : [
-                      "Операция",
-                      "Участник",
-                      "Bonus",
-                      "Остаток",
-                      "Действуют до",
-                      "Связь с операцией",
-                      ...(staff.role !== "viewer" ? ["Действия"] : []),
-                    ]
-              }
-              rows={data.items}
-              render={(r) =>
-                rentals ? (
-                  <RentalCells
-                    row={r}
-                    action={
-                      staff.role !== "viewer" ? (
-                        <div className="detail-actions">
-                          {r.status === "accepted" &&
-                            r.mode === "operational" && (
+            {rentals ? (
+              <>
+                <Field label="Статус аренды">
+                  <select name="status">
+                    <option value="">Все статусы</option>
+                    {["accepted", "in_progress", "completed", "cancelled"].map(
+                      (value) => (
+                        <option value={value} key={value}>
+                          {labels[value]}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </Field>
+                <Field label="Оплата">
+                  <select name="payment_status">
+                    <option value="">Любая оплата</option>
+                    {["paid", "unpaid", "partial", "refunded"].map((value) => (
+                      <option value={value} key={value}>
+                        {labels[value]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Источник">
+                  <input
+                    name="source"
+                    maxLength={128}
+                    placeholder="Например, manual или rpm"
+                  />
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label="Тип Bonus">
+                  <select name="type">
+                    <option value="">Все операции</option>
+                    {[
+                      "rental_cashback",
+                      "referral_reward",
+                      "manual_credit",
+                      "manual_debit",
+                      "rental_payment",
+                      "expiration",
+                      "reversal",
+                    ].map((value) => (
+                      <option value={value} key={value}>
+                        {labels[value]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Клиент">
+                  <input
+                    name="q"
+                    placeholder="Имя, телефон или Member ID"
+                    maxLength={200}
+                  />
+                </Field>
+              </>
+            )}
+            <Field label={rentals ? "Завершение с" : "Операции с (Москва)"}>
+              <input type="date" name="date_from" />
+            </Field>
+            <Field label="По включительно">
+              <input type="date" name="date_to" />
+            </Field>
+            <button className="button button-small" type="submit">
+              Применить
+            </button>
+            <button
+              className="button button-small button-outline"
+              type="reset"
+              onClick={() => {
+                setFilters({});
+                setPage(0);
+              }}
+            >
+              Сбросить
+            </button>
+          </form>
+          {error ? (
+            <Failure error={error} retry={refresh} />
+          ) : !data ? (
+            <Loading />
+          ) : (
+            <>
+              <DataTable
+                headings={
+                  rentals
+                    ? [
+                        "Автомобиль",
+                        "Участник",
+                        "Завершение",
+                        "Сумма",
+                        "Статус",
+                        ...(staff.role !== "viewer" ? ["Действия"] : []),
+                      ]
+                    : [
+                        "Операция",
+                        "Участник",
+                        "Bonus",
+                        "Остаток",
+                        "Действуют до",
+                        "Связь с операцией",
+                        ...(staff.role !== "viewer" ? ["Действия"] : []),
+                      ]
+                }
+                rows={data.items}
+                render={(r) =>
+                  rentals ? (
+                    <RentalCells
+                      row={r}
+                      action={
+                        staff.role !== "viewer" ? (
+                          <div className="detail-actions">
+                            {r.status === "accepted" &&
+                              r.mode === "operational" && (
+                                <button
+                                  className="text-link"
+                                  onClick={() =>
+                                    setDialog({
+                                      action: "pickup",
+                                      id: String(r.id),
+                                      rental: r,
+                                    })
+                                  }
+                                >
+                                  Время выдачи
+                                </button>
+                              )}
+                            {r.status !== "cancelled" && (
                               <button
                                 className="text-link"
                                 onClick={() =>
                                   setDialog({
-                                    action: "pickup",
+                                    action: "status",
                                     id: String(r.id),
                                     rental: r,
                                   })
                                 }
                               >
-                                Время выдачи
+                                Статус
                               </button>
                             )}
-                          {r.status !== "cancelled" && (
-                            <button
-                              className="text-link"
-                              onClick={() =>
-                                setDialog({
-                                  action: "status",
-                                  id: String(r.id),
-                                  rental: r,
-                                })
-                              }
-                            >
-                              Статус
-                            </button>
-                          )}
-                          {r.status !== "cancelled" && (
-                            <button
-                              className="text-link"
-                              onClick={() =>
-                                setDialog({
-                                  action: "adjust",
-                                  id: String(r.id),
-                                })
-                              }
-                            >
-                              Сумма
-                            </button>
-                          )}
-                          {r.status !== "cancelled" && (
-                            <button
-                              className="icon-button"
-                              aria-label="Отменить аренду"
-                              onClick={() =>
-                                setDialog({
-                                  action: "cancel",
-                                  id: String(r.id),
-                                })
-                              }
-                            >
-                              <RotateCcw size={15} />
-                            </button>
-                          )}
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                ) : (
-                  <TransactionCells
-                    row={r}
-                    showActions={staff.role !== "viewer"}
-                    action={
-                      staff.role !== "viewer" &&
-                      [
-                        "manual_credit",
-                        "manual_debit",
-                        "rental_payment",
-                      ].includes(String(r.type)) &&
-                      BigInt(String(r.reversible_amount ?? r.amount ?? 0)) !==
-                        0n ? (
-                        <button
-                          className="text-link"
-                          onClick={() =>
-                            setDialog({ action: "reverse", id: String(r.id) })
-                          }
-                        >
-                          Отменить
-                        </button>
-                      ) : undefined
-                    }
-                  />
-                )
-              }
-            />
-            <Pagination
-              page={page}
-              onChange={setPage}
-              hasNext={data.items.length === 50}
-              total={data.total}
-            />
-          </>
-        )}
-      </section>
+                            {r.status !== "cancelled" &&
+                              r.payment_status !== "paid" && (
+                                <button
+                                  className="text-link"
+                                  onClick={() =>
+                                    setDialog({
+                                      action: "payment",
+                                      id: String(r.id),
+                                      rental: r,
+                                    })
+                                  }
+                                >
+                                  Оплата получена
+                                </button>
+                              )}
+                            {["accepted", "in_progress"].includes(
+                              String(r.status),
+                            ) && (
+                              <button
+                                className="text-link"
+                                onClick={() =>
+                                  setDialog({
+                                    action: "complete",
+                                    id: String(r.id),
+                                    rental: r,
+                                  })
+                                }
+                              >
+                                Завершить поездку
+                              </button>
+                            )}
+                            {r.status !== "cancelled" && (
+                              <button
+                                className="text-link"
+                                onClick={() =>
+                                  setDialog({
+                                    action: "adjust",
+                                    id: String(r.id),
+                                  })
+                                }
+                              >
+                                Сумма
+                              </button>
+                            )}
+                            {r.status !== "cancelled" && (
+                              <button
+                                className="icon-button"
+                                aria-label="Отменить аренду"
+                                onClick={() =>
+                                  setDialog({
+                                    action: "cancel",
+                                    id: String(r.id),
+                                  })
+                                }
+                              >
+                                <RotateCcw size={15} />
+                              </button>
+                            )}
+                          </div>
+                        ) : undefined
+                      }
+                    />
+                  ) : (
+                    <TransactionCells
+                      row={r}
+                      showActions={staff.role !== "viewer"}
+                      action={
+                        staff.role !== "viewer" &&
+                        [
+                          "manual_credit",
+                          "manual_debit",
+                          "rental_payment",
+                        ].includes(String(r.type)) &&
+                        BigInt(String(r.reversible_amount ?? r.amount ?? 0)) !==
+                          0n ? (
+                          <button
+                            className="text-link"
+                            onClick={() =>
+                              setDialog({ action: "reverse", id: String(r.id) })
+                            }
+                          >
+                            Отменить
+                          </button>
+                        ) : undefined
+                      }
+                    />
+                  )
+                }
+              />
+              <Pagination
+                page={page}
+                onChange={setPage}
+                hasNext={data.items.length === 50}
+                total={data.total}
+              />
+            </>
+          )}
+        </section>
+      )}
       {dialog && (
         <FinanceDialog
           action={dialog.action}
@@ -711,6 +886,7 @@ function CustomerDetail({ id, staff }: { id: string; staff: StaffView }) {
         ← Все участники
       </Link>
       <PageHeading title={a.user.name} subtitle={a.user.public_member_id}>
+        <a className="button button-outline" href="#customer-prizes">Призы</a>
         {staff.role !== "viewer" && (
           <>
             <button
@@ -811,6 +987,16 @@ function CustomerDetail({ id, staff }: { id: string; staff: StaffView }) {
               <div>
                 <span>Сумма завершённых аренд</span>
                 <strong>{money(a.total_rental_amount)}</strong>
+                {staff.role !== "viewer" && (
+                  <div className="detail-actions">
+                    <button className="text-link" onClick={() => setDialog("turnoverCredit")}>
+                      Пополнить
+                    </button>
+                    <button className="text-link" onClick={() => setDialog("turnoverDebit")}>
+                      Списать
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <span>Доступно Bonus</span>
@@ -854,6 +1040,10 @@ function CustomerDetail({ id, staff }: { id: string; staff: StaffView }) {
               rows={data.rentals.items}
               render={(r) => <RentalCells row={r} />}
             />
+          </section>
+          <section className="panel" id="customer-prizes" style={{ scrollMarginTop: 24 }}>
+            <div className="panel-header"><h2>История призов</h2></div>
+            <div className="panel-body"><RouletteAwardHistory userId={id} canRedeem={staff.role !== "viewer"} /></div>
           </section>
           <section className="panel">
             <div className="panel-header">

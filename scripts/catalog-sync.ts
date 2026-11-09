@@ -45,7 +45,16 @@ try {
     if (connectionLost) throw new Error("Catalog connection lost");
     dirty = false;
     const result = await client.query("SELECT car FROM rpm_club_catalog.cars");
-    const status = await syncCatalogSnapshot(result.rows.map((row) => row.car));
+    const cars = result.rows.flatMap((row) => {
+      const car = row.car as { pricePerDay?: unknown } | null;
+      return car &&
+        typeof car.pricePerDay === "number" &&
+        Number.isSafeInteger(car.pricePerDay) &&
+        car.pricePerDay > 0
+        ? [car]
+        : [];
+    });
+    const status = await syncCatalogSnapshot(cars);
     await writeFile("/tmp/rpm-catalog-heartbeat", String(Date.now()));
     if (status.changed || status.removed) console.log(JSON.stringify(status));
     try {

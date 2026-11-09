@@ -245,6 +245,8 @@ export async function authRoute(
         "INSERT INTO marketing_consents(user_id,granted,source) VALUES($1,$2,'onboarding')",
         [userId, input.marketingConsent],
       );
+      await tx.query("UPDATE users SET offers_consent=$2,routes_consent=$2 WHERE id=$1", [userId, input.marketingConsent]);
+      await tx.query("INSERT INTO marketing_topic_consents(user_id,topic,granted,source) VALUES($1,'offers',$2,'onboarding'),($1,'routes',$2,'onboarding')", [userId, input.marketingConsent]);
       if (input.referralCode)
         await bindReferralInTransaction(
           tx,

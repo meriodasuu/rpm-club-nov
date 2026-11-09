@@ -2,6 +2,7 @@ import { z } from "zod";
 import { query, transaction, type Db } from "@/lib/db";
 import { createRequestedRental, updateRentalStatus } from "@/lib/loyalty";
 import { type RentalRequest } from "./contracts";
+import { transitionAward } from "@/lib/roulette/quote";
 
 const amount = z.string().regex(/^\d{1,15}$/);
 export const rentPayload = z.object({
@@ -21,9 +22,26 @@ export const rentPayload = z.object({
   comment: z.string().max(1000),
   createdAt: z.string(),
   privacyConsentAt: z.string().nullable(),
+  prizeTitle: z.string().max(100).optional(),
+  prizeTerms: z.string().max(500).optional(),
+  prizeEffectKopecks: amount.optional(),
+  prizes: z
+    .array(
+      z.object({
+        title: z.string().max(100),
+        claimCode: z.string().max(40),
+        terms: z.string().max(500),
+        effectType: z.string().max(30),
+        effectValue: z.number(),
+        effectKopecks: amount,
+      }),
+    )
+    .max(10)
+    .optional(),
+  prizeDiscountKopecks: amount.optional(),
 });
 type Payload = z.infer<typeof rentPayload>;
-const peerState = z.object({
+export const peerStateSchema = z.object({
   id: z.string(),
   number: z.number().int(),
   status: z.enum([
@@ -35,8 +53,9 @@ const peerState = z.object({
     "CANCELLED",
   ]),
   note: z.string().nullable(),
+  updated_at: z.union([z.string(), z.date()]).optional(),
 });
-type PeerState = z.infer<typeof peerState>;
+type PeerState = z.infer<typeof peerStateSchema>;
 const actor = { id: "rpm-rent-requests", role: "system" as const };
 
 export function bridgeMessage(p: Payload, number: number, status: string) {
@@ -59,7 +78,12 @@ export function bridgeMessage(p: Payload, number: number, status: string) {
     `Телефон: ${p.phone}`,
     `Telegram: ${p.telegram || "не указан"}`,
     `Стоимость аренды: ${rubles(p.grossKopecks)}`,
-    `Скидка по карте ${p.discountBps / 100}%: ${rubles(p.discountKopecks)}`,
+    p.prizes?.length
+      ? `Призы: ${p.prizes.map((prize) => `${prize.title} · код ${prize.claimCode}${BigInt(prize.effectKopecks) ? ` (−${rubles(prize.effectKopecks)})` : ""}`).join("; ")}`
+      : p.prizeTitle
+        ? `Приз: ${p.prizeTitle}${p.prizeEffectKopecks && BigInt(p.prizeEffectKopecks) > 0n ? ` (−${rubles(p.prizeEffectKopecks)})` : ""}`
+        : `Скидка по карте ${p.discountBps / 100}%: ${rubles(p.discountKopecks)}`,
+    ...(p.prizeTerms ? [`Условия приза: ${p.prizeTerms}`] : []),
     `К оплате: ${rubles(p.totalKopecks)}`,
     `Комментарий: ${p.comment || "нет"}`,
     status === "DECLINED"
@@ -147,7 +171,38 @@ async function applyPeer(requestId: string, state: PeerState) {
         rentalId,
       ],
     );
+    if (
+      status === "accepted" ||
+      status === "declined" ||
+      status === "cancelled"
+    ) {
+      await transitionAward(tx, requestId, status);
+    }
   });
+  if (state.status === "COMPLETED") {
+    const [rental] = await query<{
+      id: string;
+      status: string;
+      payment_status: "paid" | "unpaid" | "partial" | "refunded";
+      version: number;
+    }>(
+      "SELECT id,status,payment_status,version FROM rentals WHERE id=(SELECT rental_id FROM rental_requests WHERE id=$1)",
+      [requestId],
+    );
+    if (rental && rental.status !== "completed")
+      await updateRentalStatus(
+        {
+          rentalId: rental.id,
+          status: "completed",
+          paymentStatus: rental.payment_status,
+          expectedVersion: rental.version,
+          completedAt: new Date().toISOString(),
+          reason: "Завершение получено из RPM Rent",
+          idempotencyKey: `rpm-rent-complete:${requestId}`,
+        },
+        actor,
+      );
+  }
 }
 
 export async function exportRentRequests(peer: Db) {
@@ -166,16 +221,16 @@ export async function exportRentRequests(peer: Db) {
         "SELECT rpm_club_requests.receive($1::jsonb) result",
         [JSON.stringify(payload)],
       );
-      const state = peerState.parse(received.result);
+      const state = peerStateSchema.parse(received.result);
       if (job.status === "cancelled") {
         await peer.query("SELECT rpm_club_requests.cancel($1::uuid)", [
           job.request_id,
         ]);
         const [cancelled] = await peer.query<PeerState>(
-          "SELECT id,number,status,note FROM rpm_club_requests.bookings WHERE request_id=$1",
+          "SELECT id,number,status,note,updated_at FROM rpm_club_requests.bookings WHERE request_id=$1",
           [job.request_id],
         );
-        await applyPeer(job.request_id, peerState.parse(cancelled));
+        await applyPeer(job.request_id, peerStateSchema.parse(cancelled));
       } else await applyPeer(job.request_id, state);
       await query(
         "UPDATE rpm_rent_exports SET exported_at=now(),attempts=attempts+1 WHERE request_id=$1",
@@ -210,12 +265,12 @@ export async function syncRentStates(peer: Db) {
     )
       await peer.query("SELECT rpm_club_requests.cancel($1::uuid)", [row.id]);
   const states = await peer.query<PeerState & { request_id: string }>(
-    "SELECT id,number,status,note,request_id FROM rpm_club_requests.bookings WHERE request_id=ANY($1::text[])",
+    "SELECT id,number,status,note,updated_at,request_id FROM rpm_club_requests.bookings WHERE request_id=ANY($1::text[])",
     [requests.map((r) => r.id)],
   );
   for (const state of states) {
     try {
-      await applyPeer(state.request_id, peerState.parse(state));
+      await applyPeer(state.request_id, peerStateSchema.parse(state));
     } catch {
       await query(
         "UPDATE rental_requests SET rpm_rent_sync_error='Статус RPM Rent получен, но не применён. Повторяем автоматически.',updated_at=now() WHERE id=$1",

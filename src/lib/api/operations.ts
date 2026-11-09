@@ -31,6 +31,9 @@ import { normalizeRentalRow } from "@/lib/imports/parser";
 import { normalizePhone } from "@/lib/auth/telegram";
 
 const offerSchema = z.object({
+  offer_type: z.enum(["catalog", "free"]),
+  car_id: z.uuid().nullable(),
+  discount_bps: z.number().int().min(1).max(9999).nullable(),
   title: z.string().trim().min(1).max(140),
   subtitle: z.string().max(240).default(""),
   car_name: z.string().max(200).default(""),
@@ -271,7 +274,7 @@ export async function operationsRoute(
     await requireStaff(request);
     return json({
       items: await query(
-        "SELECT * FROM offers ORDER BY created_at DESC LIMIT 100",
+        "SELECT * FROM offers WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT 100",
       ),
     });
   }
@@ -293,13 +296,25 @@ export async function operationsRoute(
         "OFFER_PERIOD",
         "Дата окончания должна быть позже начала",
       );
-    if (
-      (input.old_price === null) !== (input.new_price === null) ||
-      (input.old_price &&
-        input.new_price &&
-        BigInt(input.new_price) > BigInt(input.old_price))
-    )
-      throw new HttpError(422, "OFFER_PRICE", "Проверьте старую и новую цену");
+    if (input.offer_type === "free") {
+      if (
+        input.car_id ||
+        input.discount_bps ||
+        input.old_price !== null ||
+        input.car_name
+      )
+        throw new HttpError(
+          422,
+          "OFFER_TYPE",
+          "Свободная акция не связана с автомобилем и имеет только одну цену",
+        );
+    } else if (!input.car_id || !input.discount_bps) {
+      throw new HttpError(
+        422,
+        "OFFER_TYPE",
+        "Выберите автомобиль и укажите скидку",
+      );
+    }
     const target = new URL(input.cta_url);
     if (
       target.protocol !== "https:" ||
@@ -320,7 +335,8 @@ export async function operationsRoute(
       input.image_url &&
       !/^\/api\/media\/[a-f0-9-]+\.webp$|^\/images\/[a-z0-9-]+\.png$/.test(
         input.image_url,
-      )
+      ) &&
+      !isAllowedOfferImageUrl(input.image_url)
     ) {
       throw new HttpError(
         422,
@@ -340,15 +356,47 @@ export async function operationsRoute(
           "VERSION_CONFLICT",
           "Предложение изменено. Обновите страницу.",
         );
+      if (before?.archived_at)
+        throw new HttpError(
+          409,
+          "OFFER_ARCHIVED",
+          "Предложение уже архивировано",
+        );
+      let carName = "";
+      let imageUrl = input.image_url;
+      let oldPrice = input.old_price;
+      let newPrice = input.new_price;
+      if (input.offer_type === "catalog") {
+        const [car] = await tx.query<{
+          title: string;
+          image_url: string;
+          daily_price_kopecks: string;
+        }>(
+          "SELECT title,image_url,daily_price_kopecks FROM club_content WHERE id=$1 AND kind='car' AND active=true FOR SHARE",
+          [input.car_id],
+        );
+        if (!car)
+          throw new HttpError(
+            422,
+            "OFFER_CAR",
+            "Автомобиль не найден в опубликованном каталоге",
+          );
+        carName = car.title;
+        imageUrl = car.image_url;
+        oldPrice = String(car.daily_price_kopecks);
+        newPrice = String(
+          (BigInt(oldPrice) * BigInt(10000 - input.discount_bps!)) / 10000n,
+        );
+      }
       const values = [
         id,
         input.title,
         input.subtitle,
-        input.car_name,
-        input.image_url,
+        carName,
+        imageUrl,
         input.description,
-        input.old_price,
-        input.new_price,
+        oldPrice,
+        newPrice,
         input.minimum_tier,
         input.start_at,
         input.end_at,
@@ -356,9 +404,12 @@ export async function operationsRoute(
         input.cta_url,
         input.active,
         staff.id,
+        input.offer_type,
+        input.car_id,
+        input.discount_bps,
       ];
       const [after] = await tx.query(
-        `INSERT INTO offers(id,title,subtitle,car_name,image_url,description,old_price,new_price,minimum_tier,start_at,end_at,cta_text,cta_url,active,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT(id) DO UPDATE SET title=$2,subtitle=$3,car_name=$4,image_url=$5,description=$6,old_price=$7,new_price=$8,minimum_tier=$9,start_at=$10,end_at=$11,cta_text=$12,cta_url=$13,active=$14,version=offers.version+1,updated_at=now() RETURNING *`,
+        `INSERT INTO offers(id,title,subtitle,car_name,image_url,description,old_price,new_price,minimum_tier,start_at,end_at,cta_text,cta_url,active,created_by,offer_type,car_id,discount_bps) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT(id) DO UPDATE SET title=$2,subtitle=$3,car_name=$4,image_url=$5,description=$6,old_price=$7,new_price=$8,minimum_tier=$9,start_at=$10,end_at=$11,cta_text=$12,cta_url=$13,active=$14,offer_type=$16,car_id=$17,discount_bps=$18,version=offers.version+1,updated_at=now() RETURNING *`,
         values,
       );
       await tx.query(
@@ -374,6 +425,45 @@ export async function operationsRoute(
     });
     return json({ id });
   }
+  if (offer?.[1] && request.method === "DELETE") {
+    requireOrigin(request);
+    const staff = await requireStaff(request, "manager");
+    const input = await body(
+      request,
+      z.object({ expected_version: z.number().int() }),
+    );
+    await transaction(async (tx) => {
+      const [before] = await tx.query<{
+        version: number;
+        archived_at: string | null;
+      }>("SELECT * FROM offers WHERE id=$1 FOR UPDATE", [offer[1]]);
+      if (
+        !before ||
+        before.version !== input.expected_version ||
+        before.archived_at
+      )
+        throw new HttpError(
+          409,
+          "VERSION_CONFLICT",
+          "Предложение изменено. Обновите страницу.",
+        );
+      const [after] = await tx.query(
+        "UPDATE offers SET active=false,archived_at=now(),version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+        [offer[1]],
+      );
+      await tx.query(
+        "INSERT INTO audit_logs(actor_id,actor_role,action,entity_type,entity_id,reason,before_data,after_data) VALUES($1,$2,'offer.archive','offer',$3,'Архивирование предложения',$4,$5)",
+        [
+          staff.id,
+          staff.role,
+          offer[1],
+          JSON.stringify(before),
+          JSON.stringify(after),
+        ],
+      );
+    });
+    return json({ ok: true });
+  }
   const campaign = key.match(/^admin\/offers\/([a-f0-9-]{36})\/campaigns$/);
   if (campaign) {
     const staff = await requireStaff(request, "manager");
@@ -388,7 +478,7 @@ export async function operationsRoute(
     if (!offer) return notFound();
     const allowed = TIER_CODES.slice(TIER_CODES.indexOf(offer.minimum_tier));
     const audience = await query<{ id: string }>(
-      `SELECT u.id FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.marketing_consent AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.achieved_tier=ANY($1::text[])`,
+      `SELECT u.id FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.offers_consent AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.achieved_tier=ANY($1::text[])`,
       [allowed],
     );
     const blockedReason = offerCampaignBlockReason(offer);
@@ -427,16 +517,17 @@ export async function operationsRoute(
         if (lockedReason)
           throw new HttpError(409, "OFFER_INACTIVE", lockedReason);
         const audience = await tx.query<{ id: string }>(
-          `SELECT u.id FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.marketing_consent AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.achieved_tier=ANY($1::text[])`,
+          `SELECT u.id FROM users u JOIN loyalty_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.offers_consent AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.achieved_tier=ANY($1::text[])`,
           [TIER_CODES.slice(TIER_CODES.indexOf(locked.minimum_tier))],
         );
         const [c] = await tx.query<{ id: string }>(
-          "INSERT INTO offer_campaigns(offer_id,offer_version,audience,requested_by) VALUES($1,$2,$3,$4) ON CONFLICT(offer_id,offer_version) DO NOTHING RETURNING id",
+          "INSERT INTO offer_campaigns(offer_id,offer_version,audience,requested_by,offer_snapshot) VALUES($1,$2,$3,$4,$5) ON CONFLICT(offer_id,offer_version) DO NOTHING RETURNING id",
           [
             offer.id,
             offer.version,
             JSON.stringify(audience.map((a) => a.id)),
             staff.id,
+            JSON.stringify(locked),
           ],
         );
         if (!c)
@@ -445,7 +536,11 @@ export async function operationsRoute(
             "CAMPAIGN_EXISTS",
             "Эта версия предложения уже отправлена",
           );
-        for (const u of audience)
+        for (const u of audience) {
+          await tx.query(
+            "INSERT INTO offer_campaign_recipients(campaign_id,offer_id,user_id) VALUES($1,$2,$3)",
+            [c.id, offer.id, u.id],
+          );
           await tx.query(
             "INSERT INTO outbox_events(event_key,event_type,user_id,aggregate_id,payload) VALUES($1,'RPM_DROP',$2,$3,$4)",
             [
@@ -459,6 +554,7 @@ export async function operationsRoute(
               }),
             ],
           );
+        }
         await tx.query(
           "INSERT INTO audit_logs(actor_id,actor_role,action,entity_type,entity_id,reason,after_data) VALUES($1,$2,'offer.campaign','offer',$3,'Отправка участникам',$4)",
           [
@@ -544,7 +640,7 @@ export async function operationsRoute(
       const row = normalizeRentalRow(input);
       const userId = await resolveCustomer(row, "rpm");
       const result = await processRental(
-        { ...row, userId, source: "rpm", idempotencyKey },
+        { ...row, userId, source: "rpm", eventOrigin: "external", idempotencyKey },
         actor,
       );
       return json(result, result.status === "duplicate" ? 200 : 201);
@@ -615,4 +711,21 @@ export async function operationsRoute(
     return json({ ok: true });
   }
   return null;
+}
+
+function isAllowedOfferImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      ["rpmrent.ru", "rpm-rent.ru"].some(
+        (domain) =>
+          url.hostname === domain || url.hostname.endsWith(`.${domain}`),
+      )
+    );
+  } catch {
+    return false;
+  }
 }

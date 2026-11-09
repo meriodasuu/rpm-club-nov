@@ -223,7 +223,7 @@ export function Onboarding({ botUrl }: { botUrl?: string }) {
             ))}
             <label className="checkbox-field">
               <input type="checkbox" name="marketing" />
-              <span>Хочу получать RPM Drop и предложения клуба в Telegram</span>
+              <span>Хочу получать специальные предложения и новые маршруты RPM Club в Telegram</span>
             </label>
             <FormMessage error={error} />
             <button

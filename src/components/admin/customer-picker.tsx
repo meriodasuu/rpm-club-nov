@@ -1,31 +1,39 @@
 "use client";
-import { useEffect, useState, useId } from "react";
+import { useEffect, useState } from "react";
 import { Field, FormMessage, Spinner, useResource } from "@/components/shared";
 import type { Row } from "./tables";
+
 export function CarNameField() {
-  const id = useId();
   const r = useResource<{ items: Row[] }>("admin/club-content?kind=car");
+  const cars = r.data?.items.filter((car) => car.active === true) ?? [];
   return (
     <Field
       label="Автомобиль"
-      hint="Выберите из автопарка или введите название вручную"
+      hint="Выберите опубликованный автомобиль из автопарка"
     >
-      <input
-        name="carName"
-        required
-        maxLength={200}
-        placeholder="Porsche Taycan"
-        list={id}
-      />
-      <datalist id={id}>
-        {r.data?.items.map((car) => (
-          <option key={String(car.id)} value={String(car.title)} />
+      <select name="carName" required defaultValue="">
+        <option value="" disabled>
+          {r.loading ? "Загружаем автопарк…" : "Выберите автомобиль"}
+        </option>
+        {cars.map((car) => (
+          <option key={String(car.id)} value={String(car.title)}>
+            {String(car.title)}
+          </option>
         ))}
-      </datalist>
+      </select>
+      {r.error && <FormMessage error={r.error.message} />}
+      {!r.loading && !r.error && !cars.length && (
+        <small>В автопарке нет опубликованных автомобилей.</small>
+      )}
     </Field>
   );
 }
-export function CustomerPicker() {
+
+export function CustomerPicker({
+  onSelect,
+}: {
+  onSelect?: (customer: Row | null) => void;
+}) {
   const [search, setSearch] = useState(""),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<Row | null>(null);
@@ -37,63 +45,81 @@ export function CustomerPicker() {
     `admin/customers?q=${encodeURIComponent(query)}`,
   );
   const items = r.data?.items ?? [];
-  const options =
-    selected && !items.some((item) => item.id === selected.id)
-      ? [selected, ...items]
-      : items;
+  function choose(customer: Row | null) {
+    setSelected(customer);
+    onSelect?.(customer);
+    setSearch("");
+    setQuery("");
+  }
   return (
     <>
-      <Field
-        label="Найти клиента"
-        hint="Поиск по всем клиентам: имя, телефон или ID участника"
-      >
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Начните вводить имя или телефон"
-        />
-      </Field>
-      {r.loading && (
-        <span role="status">
-          <Spinner />
-          Поиск клиентов…
-        </span>
-      )}
-      <FormMessage error={r.error?.message} />
-      {r.error && (
-        <button
-          type="button"
-          className="text-link"
-          onClick={() => void r.refresh()}
-        >
-          Повторить поиск
-        </button>
-      )}
-      {!r.loading && !r.error && !items.length && (
-        <p role="status">Клиенты не найдены. Измените запрос.</p>
-      )}
-      <Field label="Участник">
-        <select
-          name="userId"
-          required
-          value={String(selected?.id ?? "")}
-          onChange={(e) =>
-            setSelected(
-              options.find((item) => item.id === e.target.value) ?? null,
-            )
-          }
-        >
-          <option value="" disabled>
-            Выберите клиента
-          </option>
-          {options.map((c) => (
-            <option key={String(c.id)} value={String(c.id)}>
-              {String(c.name)} · {String(c.phone || c.public_member_id)}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <input type="hidden" name="userId" value={String(selected?.id ?? "")} />
+      <div className="field">
+        <span>Участник клуба</span>
+        {selected ? (
+          <div className="panel panel-body detail-actions">
+            <strong>
+              {String(selected.name)} ·{" "}
+              {String(selected.phone || selected.public_member_id)}
+            </strong>
+            <button
+              type="button"
+              className="button button-small button-outline"
+              onClick={() => choose(null)}
+            >
+              Изменить
+            </button>
+          </div>
+        ) : (
+          <>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Имя или телефон"
+              autoComplete="off"
+              required
+            />
+            {r.loading && (
+              <span role="status">
+                <Spinner /> Поиск участников…
+              </span>
+            )}
+            <FormMessage error={r.error?.message} />
+            {r.error && (
+              <button
+                type="button"
+                className="text-link"
+                onClick={() => void r.refresh()}
+              >
+                Повторить поиск
+              </button>
+            )}
+            {!!query && !r.loading && !r.error && (
+              <div className="form-stack" role="listbox" aria-label="Участники">
+                {items.length ? (
+                  items.map((customer) => (
+                    <button
+                      type="button"
+                      className="button button-outline button-full"
+                      role="option"
+                      aria-selected={false}
+                      key={String(customer.id)}
+                      onClick={() => choose(customer)}
+                    >
+                      {String(customer.name)} ·{" "}
+                      {String(customer.phone || customer.public_member_id)}
+                    </button>
+                  ))
+                ) : (
+                  <p role="status">Участники не найдены. Измените запрос.</p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+        <small>Найдите по имени или телефону и выберите нужного клиента</small>
+      </div>
     </>
   );
 }

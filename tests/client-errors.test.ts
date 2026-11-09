@@ -3,6 +3,14 @@ import { api, ApiError } from "../src/components/shared";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("client HTTP failures behind the reverse proxy", () => {
+  it("explains network failures during upload", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Load failed")));
+    await expect(api("admin/media", { method: "POST", body: new FormData() })).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      status: 0,
+      message: "Не удалось связаться с сервером. Проверьте соединение и повторите попытку.",
+    });
+  });
   it("shows a readable error for a proxy HTML error without exposing its body", async () => {
     vi.stubGlobal(
       "fetch",

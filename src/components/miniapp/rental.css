@@ -234,6 +234,18 @@
   display: flex;
   gap: 12px;
 }
+.offer-booking-note {
+  display: grid;
+  gap: 4px;
+  padding: 13px 15px;
+  border: 1px solid #63312d;
+  border-radius: 12px;
+  background: #211513;
+}
+.offer-booking-note span {
+  color: #c8b2ae;
+  font-size: 13px;
+}
 .rental-car-summary {
   display: flex;
   align-items: center;
@@ -507,4 +519,153 @@
   .rental-date-fields button {
     padding-left: 10px;
   }
+}
+.rental-prize-picker {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #303030;
+  border-radius: 15px;
+  background: #141414;
+}
+.rental-prize-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rental-prize-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid #542020;
+  border-radius: 11px;
+  background: #261313;
+  color: #ff5a5f;
+}
+.rental-prize-heading > div {
+  min-width: 0;
+  flex: 1;
+}
+.rental-prize-heading h3 {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.rental-prize-heading p,
+.rental-prize-note {
+  margin: 3px 0 0;
+  color: #999;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rental-prize-list {
+  display: grid;
+  gap: 10px;
+}
+.rental-prize-option {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #333;
+  border-radius: 11px;
+  background: #101010;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.rental-prize-option.selected {
+  border-color: #852b2b;
+  background: #1b1111;
+}
+.rental-prize-option > label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  padding: 14px;
+  cursor: pointer;
+}
+.rental-prize-option > label input {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #ed1017;
+  cursor: pointer;
+}
+.rental-prize-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+.rental-prize-title {
+  color: #f2f2f2;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.rental-prize-benefit {
+  flex: 0 0 auto;
+  max-width: 90px;
+  margin-left: auto;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #2a1515;
+  color: #ff777b;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+}
+.rental-prize-terms {
+  margin-left: 46px;
+  border-top: 1px solid #292929;
+  color: #aaa;
+}
+.rental-prize-terms summary {
+  padding: 9px 14px 9px 0;
+  color: #bdbdbd;
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+.rental-prize-terms summary::-webkit-details-marker {
+  display: none;
+}
+.rental-prize-terms summary::after {
+  content: "+";
+  float: right;
+  color: #999;
+  font-size: 14px;
+  line-height: 12px;
+}
+.rental-prize-terms[open] summary::after {
+  content: "−";
+}
+.rental-prize-terms p {
+  margin: 0;
+  padding: 0 14px 12px 0;
+  color: #999;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.rental-prize-note {
+  margin: 0;
+  font-size: 11px;
+}
+.request-prize {
+  display: block;
+  margin: 9px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(184, 148, 89, 0.1);
+}
+.request-prize small {
+  display: block;
+  margin-top: 4px;
 }

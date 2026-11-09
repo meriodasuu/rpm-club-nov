@@ -36,7 +36,7 @@ describe("notification editor availability", () => {
   it("marks stored enabled bonus rules unavailable and hides their forms in discount mode", () => {
     const html = render("discount");
     expect(html.match(/Недоступно при скидочной программе/g)).toHaveLength(4);
-    expect(html.match(/Включить сценарий/g)).toHaveLength(1);
+    expect(html.match(/Изменить текст и условия/g)).toHaveLength(1);
     expect(html).not.toContain("{bonus_balance}");
     expect(html).not.toContain("{bonus_added}");
     expect(html).not.toContain("Профиль и Bonus");
@@ -45,7 +45,7 @@ describe("notification editor availability", () => {
   it("keeps the existing bonus rule editor available for legacy cashback programs", () => {
     const html = render("cashback");
     expect(html).not.toContain("Недоступно при скидочной программе");
-    expect(html.match(/Включить сценарий/g)).toHaveLength(5);
+    expect(html.match(/Изменить текст и условия/g)).toHaveLength(5);
     expect(html).toContain("{bonus_balance}");
   });
 });

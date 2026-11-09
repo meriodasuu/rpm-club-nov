@@ -26,6 +26,40 @@ type Preferences = {
   birthday: string | null;
   birthday_consent_at: string | null;
 };
+type MarketingPreferences = { offersEnabled: boolean; routesEnabled: boolean };
+export function MarketingPreferences() {
+  const topics = useResource<MarketingPreferences>("me/marketing-preferences");
+  const general = useResource<Preferences>("me/notification-preferences");
+  const refreshGeneral = general.refresh;
+  useEffect(() => {
+    const refresh = () => { void refreshGeneral(); };
+    window.addEventListener("rpm:notification-preferences-updated", refresh);
+    return () => window.removeEventListener("rpm:notification-preferences-updated", refresh);
+  }, [refreshGeneral]);
+  const [saving, setSaving] = useState<"offers" | "routes" | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  async function change(topic: "offers" | "routes", enabled: boolean) {
+    setSaving(topic); setError(""); setMessage("");
+    try {
+      await command("me/marketing-preferences", { topic, enabled }, "PATCH");
+      await topics.refresh();
+      setMessage("Настройка сохранена");
+    } catch (e) { setError((e as Error).message); }
+    finally { setSaving(null); }
+  }
+  return <section className="panel" aria-label="Что получать в Telegram">
+    <div className="panel-header"><h2>Что получать в Telegram</h2></div>
+    <div className="panel-body form-stack">
+      {topics.error ? <Failure error={topics.error} retry={topics.refresh} /> : topics.data ? <>
+        <label className="checkbox-field"><input type="checkbox" checked={topics.data.offersEnabled} disabled={!!saving} onChange={(e) => void change("offers", e.target.checked)} />Специальные предложения RPM Club</label>
+        <label className="checkbox-field"><input type="checkbox" checked={topics.data.routesEnabled} disabled={!!saving} onChange={(e) => void change("routes", e.target.checked)} />Новые маршруты RPM Club</label>
+      </> : <p>Загружаем настройки…</p>}
+      {general.data?.enabled === false && <p>Уведомления клуба выключены — сообщения не придут.</p>}
+      <p role="status">{saving ? "Сохраняем…" : message}</p><FormMessage error={error} />
+    </div>
+  </section>;
+}
 export function NotificationPreferences() {
   const r = useResource<Preferences>("me/notification-preferences");
   return r.error ? (
@@ -69,6 +103,7 @@ function PreferenceForm({
             });
             setMessage("Сохранено");
             await refresh();
+            window.dispatchEvent(new Event("rpm:notification-preferences-updated"));
           } catch (e) {
             setError((e as Error).message);
           } finally {

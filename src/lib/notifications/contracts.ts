@@ -99,6 +99,11 @@ export const notificationRuleSchema = z
     enabled: z.boolean(),
     title: template,
     body: template,
+    imageUrl: z
+      .string()
+      .regex(/^\/api\/media\/[0-9a-f-]{36}\.webp$/)
+      .nullable()
+      .optional(),
     cta: z.string().trim().min(1).max(60),
     path: z.enum([
       "/onboarding",
@@ -122,6 +127,12 @@ export const notificationRuleSchema = z
     expectedVersion: z.number().int().min(0),
   })
   .superRefine((v, ctx) => {
+    if (v.imageUrl && v.title.length + v.body.length > 1000)
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Для сообщения с фото заголовок и текст вместе должны быть не длиннее 1000 символов",
+      });
     if (v.enabled && blockedNotifications[v.id])
       ctx.addIssue({ code: "custom", message: blockedNotifications[v.id]! });
     if (

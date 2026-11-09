@@ -15,9 +15,10 @@ export async function scheduleClubTriggers(limit = 200) {
     );
     let count = 0;
     for (const rule of rules) {
+      if (rule.kind === "weather") continue;
       // Bounded pages skip already queued keys so every audience member can progress.
       let source: string;
-      if (rule.kind === "before_rental" || rule.kind === "weather") {
+      if (rule.kind === "before_rental") {
         source = `SELECT u.id user_id,r.id::text resource_id,r.pickup_at occurrence_at,r.pickup_at expires_at,':'||extract(epoch FROM r.pickup_at)::text occurrence_key FROM rentals r JOIN users u ON u.id=r.user_id WHERE r.status='accepted' AND r.mode='operational' AND r.pickup_at>now() AND r.pickup_at<=now()+$2*interval '1 hour'`;
       } else if (rule.kind === "after_rental") {
         source =
@@ -28,14 +29,12 @@ export async function scheduleClubTriggers(limit = 200) {
         source =
           "SELECT u.id user_id,c.id::text resource_id,c.published_at occurrence_at,c.published_at+interval '7 days' expires_at,'' occurrence_key FROM club_content c CROSS JOIN users u WHERE c.kind='route' AND c.active AND c.published_at>now()-interval '7 days' AND c.published_at>=$6::timestamptz AND c.published_at<=now()";
       }
-      const marketing = ["offer_reminder", "new_route", "weather"].includes(
-        rule.kind,
-      );
+      const topic = rule.kind === "offer_reminder" ? "offers" : rule.kind === "new_route" ? "routes" : "none";
       const inserted = await tx.query(
         `WITH candidates AS (${source}) INSERT INTO outbox_events(event_key,event_type,user_id,aggregate_id,payload)
         SELECT 'trigger:'||$1||':'||c.resource_id||':'||c.user_id||c.occurrence_key,'CLUB_TRIGGER',c.user_id,c.resource_id,jsonb_build_object('kind',$1::text,'resource_id',c.resource_id,'occurrence_at',c.occurrence_at,'expires_at',c.expires_at)
         FROM candidates c JOIN users u ON u.id=c.user_id JOIN loyalty_accounts a ON a.user_id=u.id
-        WHERE u.status='active' AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.member_since IS NOT NULL AND (NOT $5::boolean OR u.marketing_consent)
+        WHERE u.status='active' AND u.telegram_reachable AND u.telegram_id IS NOT NULL AND a.member_since IS NOT NULL AND ($5::text='none' OR ($5::text='offers' AND u.offers_consent) OR ($5::text='routes' AND u.routes_consent))
           AND a.member_since<=c.occurrence_at AND cardinality($4::text[])>0 AND $2::int>=0 AND $6::timestamptz IS NOT NULL
           AND NOT EXISTS(SELECT 1 FROM outbox_events e WHERE e.event_key='trigger:'||$1||':'||c.resource_id||':'||c.user_id||c.occurrence_key)
         ORDER BY c.resource_id,c.user_id LIMIT $3 ON CONFLICT(event_key) DO NOTHING RETURNING id`,
@@ -44,7 +43,7 @@ export async function scheduleClubTriggers(limit = 200) {
           rule.lead_hours,
           Math.max(1, Math.min(limit, 500)),
           TIER_CODES,
-          marketing,
+          topic,
           rule.enabled_at,
         ],
       );
@@ -107,9 +106,29 @@ async function weatherForecast(rule: TriggerRule, date: string) {
   return text;
 }
 
+export async function validateOpenMeteoApiKey(key: string) {
+  const url = new URL("https://customer-api.open-meteo.com/v1/forecast");
+  url.search = new URLSearchParams({
+    latitude: "59.9311",
+    longitude: "30.3609",
+    daily: "temperature_2m_min,temperature_2m_max,precipitation_probability_max",
+    timezone: "Europe/Moscow",
+    forecast_days: "1",
+    apikey: key,
+  }).toString();
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return false;
+    const result = await response.json();
+    return Array.isArray(result?.daily?.time) && result.daily.time.length === 1;
+  } catch {
+    return false;
+  }
+}
+
 export async function clubTriggerMessage(
   event: OutboxEvent,
-  marketingConsent: boolean,
+  marketingConsent: boolean | { offers: boolean; routes: boolean },
   tier: string,
 ) {
   const {
@@ -135,11 +154,11 @@ export async function clubTriggerMessage(
     [kind],
   );
   if (
-    !rule ||
+    !rule || kind === "weather" ||
     (["after_rental", "offer_reminder", "new_route"].includes(kind) &&
       Date.parse(occurrenceAt) < new Date(rule.enabled_at).getTime()) ||
-    (["offer_reminder", "new_route", "weather"].includes(kind) &&
-      !marketingConsent)
+    (kind === "offer_reminder" && !(typeof marketingConsent === "boolean" ? marketingConsent : marketingConsent.offers)) ||
+    (kind === "new_route" && !(typeof marketingConsent === "boolean" ? marketingConsent : marketingConsent.routes))
   )
     return null;
   const lines = ["RPM Club", rule.message];

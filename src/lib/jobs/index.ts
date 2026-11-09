@@ -7,8 +7,10 @@ import { ProviderError, retryDelay } from './provider';
 import { scheduleClubTriggers } from '@/lib/club/triggers';
 import { maintenanceStage,MaintenanceStageError } from './diagnostics';
 import { processNotifications } from '@/lib/notifications/engine';
+import { reconcileRegistrationCredits } from '@/lib/roulette/credits';
+import { drawDueGiveaways, refreshGiveawayParticipants } from '@/lib/giveaways';
 
-const TELEGRAM_EVENTS = ['BONUS_CHANGED', 'TIER_CHANGED', 'RPM_DROP', 'BOT_WELCOME', 'CLUB_TRIGGER'];
+const TELEGRAM_EVENTS = ['BONUS_CHANGED', 'TIER_CHANGED', 'RPM_DROP', 'BOT_WELCOME', 'CLUB_TRIGGER', 'ROULETTE_ATTEMPTS_GRANTED', 'GIVEAWAY_PUBLISHED', 'GIVEAWAY_WON'];
 const LEASE_SECONDS = 120;
 const MAX_DELIVERY_ATTEMPTS = 7;
 export async function expandOutbox(limit = 100, eventIds?: string[]) {
@@ -81,9 +83,12 @@ async function maintenance() {
   const stage = <T>(name:string,work:()=>Promise<T>)=>maintenanceStage(name,work,startedAt);
   const triggers = await stage('triggers',()=>scheduleClubTriggers());
   await stage('autopush',()=>processNotifications(2));
+  await stage('roulette_registration_credits',()=>reconcileRegistrationCredits(200));
   const expired = await stage('bonus_expiration',()=>expireBonuses(50));
   const referrals = await stage('referrals',()=>retryReferrals());
   const imports = await stage('imports',()=>processQueuedImports(1));
+  await stage('giveaway_participants',()=>refreshGiveawayParticipants());
+  await stage('giveaway_draws',()=>drawDueGiveaways());
   const program = await stage('program_recalculation',()=>processProgramRecalculations(50));
   // Record success only after reconciliation. A five-minute claim permits retry after a crash.
   const claim = await stage('reconciliation_claim',()=>query(`INSERT INTO program_settings(key,value) VALUES('jobs:reconcile',jsonb_build_object('lease',now()+interval '5 minutes')) ON CONFLICT(key) DO UPDATE SET value=program_settings.value||jsonb_build_object('lease',now()+interval '5 minutes') WHERE coalesce((program_settings.value->>'lease')::timestamptz,'epoch')<now() AND coalesce((program_settings.value->>'completed')::timestamptz,'epoch')<now()-interval '1 day' RETURNING key`));

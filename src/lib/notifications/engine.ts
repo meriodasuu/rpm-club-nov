@@ -200,6 +200,7 @@ export async function sendNotification(
     text: string,
     url: string,
     cta: string,
+    imageUrl?: string | null,
   ) => Promise<void>,
 ) {
   const prepared = await transaction(async (tx) => {
@@ -278,7 +279,7 @@ export async function sendNotification(
         telegram_id: string | null;
         status: string;
         telegram_reachable: boolean;
-        marketing_consent: boolean;
+        offers_consent: boolean;
         enabled: boolean;
       }>(
         "SELECT u.*,coalesce(p.enabled,true) enabled FROM users u LEFT JOIN notification_profiles p ON p.user_id=u.id WHERE u.id=$1",
@@ -286,7 +287,7 @@ export async function sendNotification(
       );
       if (!u || u.status !== "active") return cancel("MEMBER_UNAVAILABLE");
       if (!u.enabled) return cancel("NOTIFICATIONS_DISABLED");
-      if (run.config.category === "marketing" && !u.marketing_consent)
+      if (run.config.category === "marketing" && !u.offers_consent)
         return cancel("MARKETING_OPT_OUT");
       if (u.telegram_reachable) target = u.telegram_id;
     }
@@ -359,6 +360,7 @@ export async function sendNotification(
       prepared.text.slice(0, 4000),
       prepared.url,
       run.config.cta,
+      run.config.imageUrl,
     );
     await query(
       "UPDATE notification_runs SET status='sent',sent_at=now(),reason=NULL,lease_until=NULL WHERE id=$1 AND status='sending' AND attempts=$2",
@@ -398,23 +400,37 @@ export async function telegramNotification(
   text: string,
   url: string,
   cta: string,
+  imageUrl?: string | null,
 ) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new ProviderError("telegram", 503);
   let response: Response;
   try {
-    response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({
-        chat_id: target,
-        text,
-        disable_web_page_preview: true,
-        reply_markup: { inline_keyboard: [[{ text: cta, web_app: { url } }]] },
-      }),
-    });
-  } catch {
+    const photo = imageUrl
+      ? new URL(
+          imageUrl,
+          process.env.APP_URL ?? "http://127.0.0.1:3001",
+        ).toString()
+      : null;
+    response = await fetch(
+      `https://api.telegram.org/bot${token}/${photo ? "sendPhoto" : "sendMessage"}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({
+          chat_id: target,
+          ...(photo
+            ? { photo, caption: text.slice(0, 1024) }
+            : { text, disable_web_page_preview: true }),
+          reply_markup: {
+            inline_keyboard: [[{ text: cta, web_app: { url } }]],
+          },
+        }),
+      },
+    );
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
     throw new ProviderError("telegram", 503);
   }
   const result = (await response.json().catch(() => ({}))) as {

@@ -6,11 +6,13 @@ export function ImageUpload({
   onChange,
   busy,
   onBusy,
+  allowUrl = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   busy: boolean;
   onBusy: (value: boolean) => void;
+  allowUrl?: boolean;
 }) {
   const [error, setError] = useState("");
   return (
@@ -64,18 +66,20 @@ export function ImageUpload({
           Обработка изображения…
         </span>
       )}
-      <Field
-        label="Или ссылка на изображение"
-        hint="https:// либо адрес уже загруженного изображения"
-      >
-        <input
-          name="image"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={busy}
-          maxLength={2000}
-        />
-      </Field>
+      {allowUrl && (
+        <Field
+          label="Или ссылка на изображение"
+          hint="https:// либо адрес уже загруженного изображения"
+        >
+          <input
+            name="image"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={busy}
+            maxLength={2000}
+          />
+        </Field>
+      )}
       <FormMessage error={error} />
     </div>
   );

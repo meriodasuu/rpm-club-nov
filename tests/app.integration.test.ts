@@ -134,6 +134,61 @@ function rental(extra: Record<string, unknown> = {}) {
   };
 }
 suite("HTTP identity, roles, imports and campaign boundaries", () => {
+  it("adjusts rental turnover up and down exactly once and recalculates the tier", async () => {
+    const manager = await staff("manager"),
+      viewer = await staff("viewer"),
+      u = await member(),
+      creditKey = randomUUID();
+    const credit = {
+      operation: "credit",
+      amountKopecks: "10000000",
+      reason: "Перенос истории аренд",
+    };
+    const first = await call(
+      `admin/customers/${u.id}/rental-turnover`,
+      manager.cookie,
+      credit,
+      { key: creditKey },
+    );
+    expect(first.status).toBe(200);
+    expect((await first.json()).tier).toBe("DRIVE");
+    expect((await getAccountSnapshot(u.id)).total_rental_amount).toBe(
+      "10000000",
+    );
+    expect(
+      (
+        await call(`admin/customers/${u.id}/rental-turnover`, manager.cookie, credit, {
+          key: creditKey,
+        })
+      ).status,
+    ).toBe(200);
+    const debit = await call(
+      `admin/customers/${u.id}/rental-turnover`,
+      manager.cookie,
+      {
+        operation: "debit",
+        amountKopecks: "10000000",
+        reason: "Исправление переноса",
+      },
+    );
+    expect(debit.status).toBe(200);
+    expect((await debit.json()).tier).toBe("MEMBER");
+    expect((await getAccountSnapshot(u.id)).total_rental_amount).toBe("0");
+    expect(
+      (
+        await call(`admin/customers/${u.id}/rental-turnover`, manager.cookie, {
+          operation: "debit",
+          amountKopecks: "1",
+          reason: "Слишком большое списание",
+        })
+      ).status,
+    ).toBe(422);
+    expect(
+      (
+        await call(`admin/customers/${u.id}/rental-turnover`, viewer.cookie, credit)
+      ).status,
+    ).toBe(403);
+  });
   it("staff status changes award Bonus once only after completion and payment", async () => {
     const s = await staff("manager"),
       u = await member();
@@ -432,6 +487,31 @@ suite("HTTP identity, roles, imports and campaign boundaries", () => {
       bonus_available: "2200",
     });
   });
+  it("creates a manual rental without requiring the manager to type an external ID", async () => {
+    const s = await staff("manager"),
+      u = await member(),
+      start = new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      end = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+    const response = await call("admin/rentals", s.cookie, {
+      userId: u.id,
+      carName: "Manual rental test",
+      startDate: start,
+      endDate: end,
+      amountKopecks: "100000",
+      status: "accepted",
+      paymentStatus: "unpaid",
+      reason: "Тест создания аренды без ID",
+    });
+    expect(response.status).toBe(201);
+    const { rentalId } = await response.json();
+    expect(
+      (
+        await query("SELECT external_rental_id FROM rentals WHERE id=$1", [
+          rentalId,
+        ])
+      )[0].external_rental_id,
+    ).toMatch(/^manual:/);
+  });
   it("explains unavailable campaigns before sending without creating a campaign", async () => {
     const a = await staff();
     for (const [active, start, end, reason] of [
@@ -457,9 +537,40 @@ suite("HTTP identity, roles, imports and campaign boundaries", () => {
       ).toHaveLength(0);
     }
   });
-  it("refuses stale campaign versions and suppresses edited offers at delivery", async () => {
+  it("returns every current offer allowed for a member, not just one", async () => {
+    const u = await member(),
+      s = await session(u.id, u.telegram_id),
+      created: string[] = [];
+    try {
+      for (const [title, active, start, end] of [
+        ["First offer", true, -1, 2],
+        ["Second offer", true, -1, 2],
+        ["Hidden offer", false, -1, 2],
+        ["Expired offer", true, -3, -1],
+      ] as const) {
+        const [offer] = await query<{ id: string }>(
+          `INSERT INTO offers(title,description,minimum_tier,start_at,end_at,cta_text,cta_url,active,created_by) VALUES($1,'Test','MEMBER',now()+$2*interval '1 day',now()+$3*interval '1 day','Open','https://rpmrent.ru',$4,'app-test') RETURNING id`,
+          [title, start, end, active],
+        );
+        created.push(offer.id);
+      }
+      const response = await call("offers", s.cookie);
+      expect(response.status).toBe(200);
+      expect(
+        (await response.json()).items
+          .map((offer: { title: string }) => offer.title)
+          .sort(),
+      ).toEqual(["First offer", "Second offer"]);
+    } finally {
+      await query("DELETE FROM offers WHERE id=ANY($1::uuid[])", [created]);
+    }
+  });
+  it("keeps a campaign snapshot visible only to its saved recipients", async () => {
     const a = await staff(),
-      u = await member();
+      u = await member(),
+      outsider = await member(),
+      recipientSession = await session(u.id, u.telegram_id),
+      outsiderSession = await session(outsider.id, outsider.telegram_id);
     await query("UPDATE users SET marketing_consent=true WHERE id=$1", [u.id]);
     await query(
       "UPDATE loyalty_accounts SET member_since=now()-interval '1 day' WHERE user_id=$1",
@@ -487,11 +598,41 @@ suite("HTTP identity, roles, imports and campaign boundaries", () => {
       [offer.id, u.id],
     );
     expect(await telegramMessage(event, u.telegram_id)).toContain("Original");
+    const list = await call("offers", recipientSession.cookie);
+    expect(list.status).toBe(200);
+    expect(
+      (await list.json()).items.some(
+        (row: { id: string }) => row.id === offer.id,
+      ),
+    ).toBe(true);
+    expect(
+      (await call(`offers/${offer.id}`, recipientSession.cookie)).status,
+    ).toBe(200);
+    const hidden = await call("offers", outsiderSession.cookie);
+    expect(
+      (await hidden.json()).items.some(
+        (row: { id: string }) => row.id === offer.id,
+      ),
+    ).toBe(false);
+    expect(
+      (await call(`offers/${offer.id}`, outsiderSession.cookie)).status,
+    ).toBe(404);
     await query(
       "UPDATE offers SET version=version+1,title='Edited' WHERE id=$1",
       [offer.id],
     );
-    expect(await telegramMessage(event, u.telegram_id)).toBeNull();
+    expect(await telegramMessage(event, u.telegram_id)).toContain("Original");
+    expect(
+      (await (await call(`offers/${offer.id}`, recipientSession.cookie)).json())
+        .title,
+    ).toBe("Original");
+    await query(
+      "UPDATE offers SET active=false,archived_at=now() WHERE id=$1",
+      [offer.id],
+    );
+    expect(
+      (await call(`offers/${offer.id}`, recipientSession.cookie)).status,
+    ).toBe(404);
   });
   it("admin identity editing checks version, uniqueness and revokes sessions", async () => {
     const a = await staff(),

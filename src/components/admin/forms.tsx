@@ -17,6 +17,8 @@ import { tierName } from "@/lib/loyalty/rules";
 export type FinanceAction =
   | "rental"
   | "status"
+  | "payment"
+  | "complete"
   | "pickup"
   | "credit"
   | "debit"
@@ -24,12 +26,16 @@ export type FinanceAction =
   | "reverse"
   | "cancel"
   | "adjust"
+  | "turnoverCredit"
+  | "turnoverDebit"
   | "tier"
   | "block"
   | "restore";
 const titles: Record<FinanceAction, string> = {
   rental: "Добавить аренду",
   status: "Статус аренды",
+  payment: "Оплата аренды",
+  complete: "Завершить поездку",
   pickup: "Время выдачи автомобиля",
   credit: "Начислить Bonus",
   debit: "Списать Bonus",
@@ -37,6 +43,8 @@ const titles: Record<FinanceAction, string> = {
   reverse: "Отменить бонусную операцию",
   cancel: "Отменить аренду",
   adjust: "Скорректировать аренду",
+  turnoverCredit: "Пополнить сумму аренд",
+  turnoverDebit: "Списать сумму аренд",
   tier: "Изменить уровень",
   block: "Заблокировать участника",
   restore: "Восстановить доступ",
@@ -59,8 +67,12 @@ export function FinanceDialog({
   const { data: program, error: programError } =
     useResource<Program>("admin/tiers");
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [selectedUserId, setSelectedUserId] = useState(userId ?? "");
   const [key] = useState(() => crypto.randomUUID());
+  const [defaultCompletionAt] = useState(() =>
+    new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 16),
+  );
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -77,7 +89,7 @@ export function FinanceDialog({
         data = {
           ...data,
           userId: uid,
-          externalRentalId: value("externalRentalId"),
+          externalRentalId: "manual:" + key,
           carName: value("carName"),
           startDate: value("startDate"),
           endDate: value("endDate"),
@@ -102,13 +114,25 @@ export function FinanceDialog({
           ).toISOString(),
           expectedVersion: rental?.version,
         };
-      } else if (action === "status") {
+      } else if (["status", "payment", "complete"].includes(action)) {
         url = `admin/rentals/${entityId}/status`;
         data = {
           ...data,
-          status: value("status"),
-          paymentStatus: value("paymentStatus"),
+          status:
+            action === "complete"
+              ? "completed"
+              : action === "payment"
+                ? rental?.status
+                : value("status"),
+          paymentStatus: action === "payment" ? "paid" : value("paymentStatus"),
           expectedVersion: rental?.version,
+          ...(action === "complete"
+            ? {
+                completedAt: new Date(
+                  value("completedAt") + ":00+03:00",
+                ).toISOString(),
+              }
+            : {}),
         };
       } else if (["credit", "debit", "redeem"].includes(action)) {
         url = "admin/bonus/" + action;
@@ -128,6 +152,13 @@ export function FinanceDialog({
         url = `admin/rentals/${entityId}/${action}`;
         if (action === "adjust")
           data.amountKopecks = rublesInput(value("amount"));
+      } else if (["turnoverCredit", "turnoverDebit"].includes(action)) {
+        url = `admin/customers/${uid}/rental-turnover`;
+        data = {
+          ...data,
+          operation: action === "turnoverCredit" ? "credit" : "debit",
+          amountKopecks: rublesInput(value("amount")),
+        };
       } else {
         url = `admin/customers/${uid}/${action}`;
         if (action === "tier") data.tier = value("tier") || null;
@@ -147,6 +178,8 @@ export function FinanceDialog({
     "debit",
     "redeem",
     "adjust",
+    "turnoverCredit",
+    "turnoverDebit",
   ].includes(action);
   return (
     <Dialog title={titles[action]} onClose={onClose} protectChanges busy={busy}>
@@ -173,16 +206,12 @@ export function FinanceDialog({
         )}
         {!userId &&
           ["rental", "credit", "debit", "redeem"].includes(action) && (
-            <CustomerPicker />
+            <CustomerPicker
+              onSelect={(customer) =>
+                setSelectedUserId(String(customer?.id ?? ""))
+              }
+            />
           )}
-        {(action === "rental" || action === "redeem") && (
-          <Field
-            label="Внешний ID аренды"
-            hint="ID из системы бронирования RPM. Один и тот же ID защищает от повторного создания аренды."
-          >
-            <input name="externalRentalId" required maxLength={128} />
-          </Field>
-        )}
         {action === "rental" && (
           <>
             <CarNameField />
@@ -220,21 +249,25 @@ export function FinanceDialog({
             />
           </Field>
         )}
-        {(action === "rental" || action === "status") && (
+        {(action === "rental" ||
+          action === "status" ||
+          action === "complete") && (
           <>
-            <Field label="Статус аренды">
-              <select
-                name="status"
-                defaultValue={String(rental?.status ?? "accepted")}
-              >
-                <option value="accepted">Принята</option>
-                <option value="in_progress">В аренде</option>
-                <option value="completed">Завершена</option>
-                {action === "status" && (
-                  <option value="cancelled">Отменена</option>
-                )}
-              </select>
-            </Field>
+            {action !== "complete" && (
+              <Field label="Статус аренды">
+                <select
+                  name="status"
+                  defaultValue={String(rental?.status ?? "accepted")}
+                >
+                  <option value="accepted">Принята</option>
+                  <option value="in_progress">В аренде</option>
+                  <option value="completed">Завершена</option>
+                  {action === "status" && (
+                    <option value="cancelled">Отменена</option>
+                  )}
+                </select>
+              </Field>
+            )}
             <Field label="Оплата">
               <select
                 name="paymentStatus"
@@ -256,10 +289,25 @@ export function FinanceDialog({
             </p>
           </>
         )}
+        {action === "complete" && (
+          <Field label="Фактическое завершение (Москва)">
+            <input
+              name="completedAt"
+              type="datetime-local"
+              required
+              defaultValue={defaultCompletionAt}
+            />
+          </Field>
+        )}
+        {action === "payment" && (
+          <p className="small-note">
+            Подтвердите получение полной оплаты аренды.
+          </p>
+        )}
         {needsAmount && (
           <Field
             label={
-              action === "rental" || action === "adjust"
+              action === "rental" || action === "adjust" || action === "turnoverCredit" || action === "turnoverDebit"
                 ? "Стоимость аренды, ₽"
                 : "Количество Bonus"
             }
@@ -281,10 +329,8 @@ export function FinanceDialog({
             />
           </Field>
         )}
-        {action === "redeem" && (
-          <Field label="Стоимость аренды до скидки Bonus, ₽">
-            <input name="eligiblePrice" inputMode="decimal" required />
-          </Field>
+        {action === "redeem" && selectedUserId && (
+          <RentalPriceField key={selectedUserId} userId={selectedUserId} />
         )}
         {action === "credit" && (
           <Field label="Срок действия (необязательно)">
@@ -340,5 +386,80 @@ export function FinanceDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+function RentalPriceField({ userId }: { userId: string }) {
+  const [selected, setSelected] = useState<Row | null>(null);
+  const r = useResource<{ rentals: { items: Row[] } }>(
+    `admin/customers/${userId}`,
+  );
+  const rentals = (r.data?.rentals.items ?? []).filter(
+    (item) => item.mode === "operational" && item.status !== "cancelled",
+  );
+  return (
+    <>
+      <Field
+        label="Аренда"
+        hint="Выберите поездку участника. ID привяжется автоматически."
+      >
+        <select
+          name="externalRentalId"
+          required
+          value={String(selected?.external_rental_id ?? "")}
+          onChange={(event) =>
+            setSelected(
+              rentals.find(
+                (item) => item.external_rental_id === event.target.value,
+              ) ?? null,
+            )
+          }
+        >
+          <option value="" disabled>
+            {r.loading ? "Загружаем аренды…" : "Выберите аренду"}
+          </option>
+          {rentals.map((item) => (
+            <option
+              key={String(item.external_rental_id)}
+              value={String(item.external_rental_id)}
+            >
+              {String(item.car_name)} · {date(String(item.start_date))} ·{" "}
+              {money(
+                String(item.current_amount_kopecks ?? item.amount_kopecks),
+              )}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <input
+        type="hidden"
+        name="eligiblePrice"
+        value={String(
+          selected?.current_amount_kopecks ?? selected?.amount_kopecks ?? "",
+        )}
+        required
+      />
+      <Field label="Стоимость аренды до скидки Bonus, ₽">
+        <input
+          value={
+            selected
+              ? String(
+                  Number(
+                    selected.current_amount_kopecks ?? selected.amount_kopecks,
+                  ) / 100,
+                )
+              : ""
+          }
+          readOnly
+          placeholder="Заполнится после выбора аренды"
+        />
+      </Field>
+      {r.error && <FormMessage error={r.error.message} />}
+      {!r.loading && !r.error && !rentals.length && (
+        <p className="small-note">
+          Нет подходящих текущих аренд. Сначала добавьте аренду в клуб.
+        </p>
+      )}
+    </>
   );
 }

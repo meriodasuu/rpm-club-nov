@@ -1,0 +1,49 @@
+.roulette-awards-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin: 16px 0;
+}
+.roulette-awards-filters input,
+.roulette-awards-filters select {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #444;
+  border-radius: 7px;
+  background: #111;
+  color: #fff;
+}
+.roulette-awards-filters > input {
+  min-width: min(100%, 240px);
+}
+.roulette-awards-filters label {
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  color: #aaa;
+}
+.roulette-history-note {
+  display: block;
+  margin-top: 4px;
+  color: #999;
+}
+.roulette-history-pages {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 14px 0;
+}
+.roulette-history-pages span {
+  font-size: 13px;
+  color: #aaa;
+}
+@media (max-width: 600px) {
+  .roulette-awards-filters > * {
+    flex: 1 1 140px;
+  }
+  .roulette-awards-filters .button {
+    flex: 1 1 100%;
+  }
+}

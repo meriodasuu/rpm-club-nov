@@ -67,5 +67,6 @@ Worker выполняет реальные отправки. В Compose он з�
 - [Уведомления](docs/NOTIFICATIONS.md), [метрики и SQL](docs/METRICS.md).
 - [Подключение бота и Mini App](docs/TELEGRAM-SETUP.md): `npm run telegram:setup -- --check`, применение — `--apply`.
 - [Статусы аренды и автоматические Bonus](docs/RENTAL-WORKFLOW.md).
+- [Рулетка призов и адресные предложения](docs/ROULETTE.md).
 
 Ветка `codex/rpm-club`. Предыдущая публикация и проверки описаны в [инструкции Vercel](docs/VERCEL-DEPLOYMENT.md).

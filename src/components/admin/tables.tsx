@@ -213,7 +213,18 @@ export function RentalCells({ row, action }: { row: Row; action?: ReactNode }) {
           date(String(row.start_date))
         )}
       </td>
-      <td>{date(String(row.end_date))}</td>
+      <td>
+        {row.status === "completed" && row.completed_at
+          ? new Date(String(row.completed_at)).toLocaleString("ru-RU", {
+              timeZone: "Europe/Moscow",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : date(String(row.end_date))}
+      </td>
       <td className="number">
         {money(String(row.current_amount_kopecks ?? row.amount_kopecks))}
       </td>

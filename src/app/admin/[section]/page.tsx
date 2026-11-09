@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AdminApp } from "@/components/admin/pages";
 export default async function Page({
   params,
@@ -6,6 +6,7 @@ export default async function Page({
   params: Promise<{ section: string }>;
 }) {
   const { section } = await params;
+  if (section === "requests") redirect("/admin/rentals");
   if (
     ![
       "dashboard",
@@ -14,6 +15,8 @@ export default async function Page({
       "transactions",
       "import",
       "offers",
+      "roulette",
+      "giveaways",
       "settings",
       "tiers",
       "referrals",

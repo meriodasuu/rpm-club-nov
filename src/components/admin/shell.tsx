@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { BrowserAccess } from "./browser-access";
+import { CustomerQuickSearch } from "./customer-quick-search";
 import { confirmUnsavedExit, UnsavedChangesPrompt } from "./unsaved";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -44,13 +45,14 @@ const nav = [
   ["dashboard", "Обзор", House],
   ["customers", "Клиенты", UsersRound],
   ["rentals", "Аренды", CarFront],
-  ["requests", "Заявки", ClipboardList],
   ["fleet", "Автопарк", Warehouse],
   ["routes", "Маршруты", Map],
   ["wiki", "База знаний", BookOpen],
   ["triggers", "Автоуведомления", Bell],
   ["transactions", "Bonus", Gift],
   ["offers", "Предложения", Gem],
+  ["roulette", "Рулетка призов", Gift],
+  ["giveaways", "Розыгрыши", Gift],
   ["tiers", "Уровни", ChartNoAxesColumnIncreasing],
   ["referrals", "Приглашения друзей", UserRoundPlus],
   ["import", "Импорт", Upload],
@@ -60,11 +62,8 @@ const nav = [
   ["team", "Сотрудники", Shield],
 ] as const;
 const groups = [
-  [
-    "Работа с клиентами",
-    ["dashboard", "customers", "rentals", "requests", "import"],
-  ],
-  ["Контент клуба", ["fleet", "routes", "wiki", "offers"]],
+  ["Работа с клиентами", ["dashboard", "customers", "rentals", "import"]],
+  ["Контент клуба", ["fleet", "routes", "wiki", "offers", "roulette", "giveaways"]],
   ["Программа", ["tiers", "referrals", "transactions"]],
   ["Управление", ["settings", "triggers", "deliveries", "audit", "team"]],
 ] as const;
@@ -187,20 +186,29 @@ export function AdminShell({
             <Menu size={18} />
             Меню
           </button>
-          <div>
+          <div className="admin-breadcrumb">
             <Link href="/admin/dashboard">Клуб</Link> / &nbsp;
             {nav.find((n) => n[0] === section)?.[1] ?? "Карточка клиента"}
           </div>
-          <BrowserAccess />
-          <a
-            href="https://rpmrent.ru/admin"
-            className="button button-outline admin-site-shortcut"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <ExternalLink size={18} />
-            Админка RPM Rent
-          </a>
+          <CustomerQuickSearch compact />
+          <details className="admin-quick-links">
+            <summary>Быстрые ссылки</summary>
+            <div>
+              <BrowserAccess />
+              <a
+                href="https://rpmrent.ru/admin"
+                className="button button-outline admin-site-shortcut"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink size={18} />
+                Админка RPM Rent
+              </a>
+              <Link href="/home" className="text-link">
+                Открыть Mini App ↗
+              </Link>
+            </div>
+          </details>
           {staff.can_manage_staff && (
             <Link
               href="/admin/team#add-admin"
@@ -210,9 +218,6 @@ export function AdminShell({
               Добавить админа
             </Link>
           )}
-          <Link href="/home" className="text-link">
-            Открыть Mini App ↗
-          </Link>
         </header>
         <div className="admin-content">{children(staff)}</div>
       </main>

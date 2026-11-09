@@ -25,19 +25,34 @@ export class ApiError extends Error {
     public code: string,
     message: string,
     public status: number,
+    public fieldErrors?: Record<string, string[]>,
+    public formErrors?: string[],
   ) {
     super(message);
   }
 }
 export async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch("/api/" + url, {
-    ...options,
-    headers: { ...options?.headers },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch("/api/" + url, {
+      ...options,
+      headers: { ...options?.headers },
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    throw new ApiError(
+      "NETWORK_ERROR",
+      "Не удалось связаться с сервером. Проверьте соединение и повторите попытку.",
+      0,
+    );
+  }
   const data: unknown = await response.json().catch(() => undefined);
   const errorBody = data && typeof data === "object" ? data : {};
-  if (!response.ok)
+  if (!response.ok) {
+    const validation = "field_errors" in errorBody && errorBody.field_errors && typeof errorBody.field_errors === "object"
+      ? errorBody.field_errors as { fieldErrors?: Record<string, string[]>; formErrors?: string[] }
+      : undefined;
     throw new ApiError(
       "code" in errorBody && typeof errorBody.code === "string"
         ? errorBody.code
@@ -48,7 +63,10 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
           ? "Файл или запрос слишком большой."
           : "Сервис временно недоступен. Повторите попытку позже.",
       response.status,
+      validation?.fieldErrors,
+      validation?.formErrors,
     );
+  }
   if (data === undefined)
     throw new ApiError(
       "INVALID_RESPONSE",

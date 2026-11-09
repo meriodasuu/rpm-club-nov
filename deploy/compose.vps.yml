@@ -59,7 +59,7 @@ services:
       [
         sh,
         -c,
-        "node --import tsx scripts/check-production.ts && exec node node_modules/next/dist/bin/next start --hostname :: --port 3001",
+        "node --import tsx scripts/check-production.ts && node --import tsx scripts/check-media-storage.ts && exec node node_modules/next/dist/bin/next start --hostname :: --port 3001",
       ]
     environment:
       NODE_ENV: production
